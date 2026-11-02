@@ -1,0 +1,165 @@
+name: Build and publish universal Melisma updates
+
+# Intentionally manual until 32-bit runtime testing passes and signing is configured.
+# Once verified, add:
+#   schedule:
+#     - cron: '23 13 * * *'
+# under "on:" to check automatically for new upstream releases.
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: 'Optional upstream release tag (blank = latest stable)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: melisma-universal-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out build scripts
+        uses: actions/checkout@v4
+        with:
+          path: automation
+
+      - name: Resolve upstream release and skip already-published tag
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_TAG: ${{ inputs.upstream_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${REQUESTED_TAG:-$(gh api repos/MelismaApp/melisma/releases/latest --jq '.tag_name')}"
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Unexpected release tag: $TAG"; exit 1; }
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if gh release view "tv-$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Already published: tv-$TAG"
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check signing secrets are configured
+        if: steps.version.outputs.build == 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in KEYSTORE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::$name secret is missing. Read README.md signing instructions."
+              exit 1
+            fi
+          done
+
+      - name: Check out upstream tagged release
+        if: steps.version.outputs.build == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: MelismaApp/melisma
+          ref: ${{ steps.version.outputs.tag }}
+          path: melisma
+          persist-credentials: false
+
+      - name: Add 32-bit and 64-bit ARM architectures
+        if: steps.version.outputs.build == 'true'
+        run: python3 automation/scripts/patch_abis.py melisma/app/build.gradle.kts --mode release
+
+      - name: Set up Java 17
+        if: steps.version.outputs.build == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        if: steps.version.outputs.build == 'true'
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Android SDK
+        if: steps.version.outputs.build == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Restore private keystore
+        if: steps.version.outputs.build == 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
+
+      - name: Build signed universal APK
+        if: steps.version.outputs.build == 'true'
+        working-directory: melisma
+        env:
+          BL_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          BL_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          BL_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          UPSTREAM_TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export BL_KEYSTORE_FILE="$RUNNER_TEMP/release.jks"
+          export BL_VERSION_NAME="${UPSTREAM_TAG#v}"
+          export BL_VERSION_CODE="$((100000 + GITHUB_RUN_NUMBER))"
+          ./gradlew :app:assembleRelease --no-daemon
+
+      - name: Check APK signature and both CPU architectures
+        if: steps.version.outputs.build == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="melisma/app/build/outputs/apk/release/app-release.apk"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | tee /tmp/apk-badging.txt
+          grep -E "^native-code:.*'armeabi-v7a'" /tmp/apk-badging.txt
+          grep -E "^native-code:.*'arm64-v8a'" /tmp/apk-badging.txt
+
+      - name: Publish signed release
+        if: steps.version.outputs.build == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPSTREAM_TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="melisma-${UPSTREAM_TAG}-universal.apk"
+          cp melisma/app/build/outputs/apk/release/app-release.apk "$APK"
+          cat > release-notes.txt <<EOF
+          Unofficial 32/64-bit build of Melisma $UPSTREAM_TAG for Android TV.
+
+          Supports: armeabi-v7a and arm64-v8a.
+          Source: https://github.com/MelismaApp/melisma/tree/$UPSTREAM_TAG
+          Automation: https://github.com/$GITHUB_REPOSITORY
+
+          Signed by this repository's owner, not the upstream developer.
+          Cannot upgrade official Melisma in place. Keep your signing key backed up.
+          EOF
+          gh release create "tv-$UPSTREAM_TAG" "$APK" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Melisma $UPSTREAM_TAG - 32/64-bit Android TV" \
+            --notes-file release-notes.txt
+
+      - name: Remove temporary keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks"
