@@ -1,5 +1,13 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2.7 — adjustable 1–10 second background transitions
+
+**[Universal Android TV v2.7 test APK](https://github.com/MixterVee/Melisma-32bit/actions/runs/41731567111)** — under **Artifacts**, download `melisma-universal-v2.7-test-v2.11.0` and extract `melisma-universal-v2.7-TEST.apk`.
+
+Open **Settings → Background → Background transition** to adjust track-to-track fades in **0.2-second increments from 1.0 through 10.0 seconds**. The default remains **3.4 seconds** until changed, preserving v2.6.4 behaviour. The choice is saved locally and applied to **Color, Living, Living (Classic), Cover Art and Artist Header** backgrounds. Black backgrounds remain black. The slider is compatible with Android TV D-pad focus and the value persists across restarts. Cover Blur remains a separate setting.
+
+Includes all v2.6.4 navigation, language, artwork fallback and Shield fade improvements. This is a debug test APK, which may require replacing a previous matching debug install.
+
 ## v2.6.4 — Android TV Language menu focus fix
 
 **[Universal Android TV v2.6.4 test APK](https://github.com/MixterVee/Melisma-32bit/actions/runs/41714977532)** — under **Artifacts**, download `melisma-universal-v2.6.4-test-v2.11.0` and extract `melisma-universal-v2.6.4-TEST.apk`.
