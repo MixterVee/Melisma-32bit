@@ -1,5 +1,30 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2 TV test build (Melisma v2.11.0)
+
+**[Successful GitHub build #3](https://github.com/MixterVee/Melisma-32bit/actions/runs/41552335012)**
+
+Download the `melisma-32bit-v2-test-v2.11.0` artifact from the bottom of the run page, extract it, and install `melisma-32bit-v2-TEST.apk`.
+
+Changes applied reproducibly by `scripts/patch_tv_ui.py` to the pinned upstream version:
+
+- Artwork-free animated background and brighter colours.
+- Cyan D-pad focus indicator on the top-toolbar chips.
+- TV focus-outline support on common settings rows.
+- Top toolbar fades after five idle seconds and can be restored by pressing **Up**.
+
+**Test build only:** GitHub runners use a new debug signing key for each run. The v1 test APK (`com.melisma.app.debug`) may need to be **uninstalled** before installing v2. Uninstalling erases that test app's saved settings. This debug package does not replace the official Melisma app. Use v2 on an Onn first; verify Emby playback and remote focus before wider rollout.
+
+Example for your currently configured Onn (replace the IP/path if different):
+
+```powershell
+adb -s 192.168.1.206:5555 uninstall com.melisma.app.debug
+adb -s 192.168.1.206:5555 install "C:\\path\\to\\melisma-32bit-v2-TEST.apk"
+```
+
+The release workflow will also apply the v2 patch but still requires **persistent signing secrets** and remains manual-only until tested. An upstream code change can require updating this exact-source patch.
+
+
 **Unofficial project** to test and automate Android 32-bit (`armeabi-v7a`) builds of [Melisma](https://github.com/MelismaApp/melisma) for Onn 4K Pro and TCL Google TV devices. Not affiliated with Melisma's developer.
 
 ## Why?
