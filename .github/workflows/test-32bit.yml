@@ -9,6 +9,7 @@ on:
       - 'scripts/patch_tv_seek_escape.py'
       - 'scripts/patch_tv_settings.py'
       - 'scripts/patch_tv_settings_all.py'
+      - 'scripts/patch_tv_sync_v25.py'
       - 'scripts/patch_abis.py'
       - '.github/workflows/test-32bit.yml'
   workflow_dispatch:
@@ -70,6 +71,9 @@ jobs:
       - name: Validate all Settings sections for D-pad focus
         run: python3 automation/scripts/patch_tv_settings_all.py melisma
 
+      - name: Add TV v2.5 per-song live timing panel and stable settings
+        run: python3 automation/scripts/patch_tv_sync_v25.py melisma
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
@@ -100,14 +104,17 @@ jobs:
           grep -E "^native-code:.*'armeabi-v7a'" /tmp/apk-badging.txt || {
             echo "No armeabi-v7a native libraries in the test APK"; exit 1;
           }
+          grep -E "^native-code:.*'arm64-v8a'" /tmp/apk-badging.txt || {
+            echo "No arm64-v8a native libraries in the universal test APK"; exit 1;
+          }
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify "$APK"
 
       - name: Prepare test APK
-        run: cp melisma/app/build/outputs/apk/debug/app-debug.apk melisma-32bit-v2.4-TEST.apk
+        run: cp melisma/app/build/outputs/apk/debug/app-debug.apk melisma-universal-v2.5-TEST.apk
 
       - name: Upload test APK
         uses: actions/upload-artifact@v4
         with:
-          name: melisma-32bit-v2.4-test-${{ steps.version.outputs.tag }}
-          path: melisma-32bit-v2.4-TEST.apk
+          name: melisma-universal-v2.5-test-${{ steps.version.outputs.tag }}
+          path: melisma-universal-v2.5-TEST.apk
           retention-days: 30
