@@ -78,6 +78,10 @@ jobs:
         if: steps.version.outputs.build == 'true'
         run: python3 automation/scripts/patch_abis.py melisma/app/build.gradle.kts --mode release
 
+      - name: Apply Android TV v2 improvements
+        if: steps.version.outputs.build == 'true'
+        run: python3 automation/scripts/patch_tv_ui.py melisma
+
       - name: Set up Java 17
         if: steps.version.outputs.build == 'true'
         uses: actions/setup-java@v4
