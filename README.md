@@ -1,5 +1,31 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2.5 UNIVERSAL test build — Onn, TCL and Nvidia Shield
+
+**[Successful v2.5 build with downloadable APK](https://github.com/MixterVee/Melisma-32bit/actions/runs/41563268067)**
+
+At the bottom of the workflow run, download artifact **`melisma-universal-v2.5-test-v2.11.0`**; extract **`melisma-universal-v2.5-TEST.apk`** (approximately 43 MB ZIP).
+
+This is a debug/test package `com.melisma.app.debug`, **not** an update to the upstream official Melisma app. GitHub debug signing differs between runs: uninstall the earlier custom *debug* package first; this deletes only that package's saved settings and notification access.
+
+```powershell
+adb -s 192.168.1.206:5555 uninstall com.melisma.app.debug
+adb -s 192.168.1.206:5555 install "C:\\path\\to\\melisma-universal-v2.5-TEST.apk"
+```
+
+Built and checked with both `armeabi-v7a` and `arm64-v8a`, for Android TV hardware including Onn 4K Pro, Nvidia Shield and supported TCL devices.
+
+### What's new in v2.5
+
+- **±ms** in the top toolbar opens a small live lyrics-sync panel instead of a modal settings sheet. It has a slider, ±50ms nudges, Reset, Done and D-pad focus styling.
+- The live adjustment uses a temporary **per-track offset** (identified by non-null track cacheKey), reset to zero on a *different* track. Seeking, pausing and replaying the same song leave it unchanged.
+- On the lyrics screen, the timing panel occupies a left side lane instead of covering the lyrics. It can also be opened with a **700 ms long hold of Up while the main lyrics/root has focus and the toolbar is hidden**; a short Up press continues to reveal the toolbar.
+- The existing Settings → Timing offset on Android TV edits that same temporary track offset rather than saving a global one. Other platforms preserve upstream settings behaviour.
+- TV settings modal's grab handle is hidden and swipe-to-drag disabled, to prevent the sheet moving off screen on first remote navigation. Phone touch interaction is preserved.
+- Retains v2.4 settings D-pad improvements, v2.2 seek-focus escape and artwork-independent animated backgrounds.
+
+**Device test needed:** The build passes Kotlin compilation, APK-signature checks and both ABI checks, but GitHub Actions cannot validate every Onn or Shield remote-navigation path. Test opening the side panel, changing lyrics timing during playback, replaying the same song, changing to a different song, and navigating settings on the physical remote.
+
 ## v2.4 — Settings-wide D-pad navigation audit
 
 **[Successful GitHub build # v2.4](https://github.com/MixterVee/Melisma-32bit/actions/runs/41558999365)**
