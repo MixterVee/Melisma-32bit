@@ -126,6 +126,10 @@ jobs:
         if: steps.version.outputs.build == 'true'
         run: python3 automation/scripts/patch_tv_v264.py melisma
 
+      - name: Add 1-10s background fade duration setting
+        if: steps.version.outputs.build == 'true'
+        run: python3 automation/scripts/patch_tv_v27.py melisma
+
       - name: Set up Java 17
         if: steps.version.outputs.build == 'true'
         uses: actions/setup-java@v4
