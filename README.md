@@ -1,5 +1,27 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2.2 — Fix seek bar remote focus trap
+
+**[GitHub Actions v2.2 build](https://github.com/MixterVee/Melisma-32bit/actions/runs/41556450078)**
+
+Download the `melisma-32bit-v2.2-test-v2.11.0` artifact from the run's **Artifacts** section and extract `melisma-32bit-v2.2-TEST.apk`.
+
+This corrects a new v2.1 bug where the cyan-highlighted seek slider could trap D-pad focus on the Onn 4K Pro. On the seek slider:
+
+- **Left / Right** continues to seek.
+- **Down** focuses Play/Pause.
+- **Back** focuses Play/Pause without stopping music.
+- **Up** shows the top toolbar and focuses its first actionable button (when controls are at the top; otherwise returns to Play/Pause).
+
+The parent Back handler was adjusted not to steal keys from focused child controls. The app still needs **physical remote validation** for a complete fix; GitHub compilation and APK verification cannot test remote focus behaviour.
+
+Because GitHub's **debug** signing key changes on each runner, uninstall the previous custom test package `com.melisma.app.debug` first. This clears the test app settings and notification access. It does not remove the official Melisma app.
+
+```powershell
+adb -s 192.168.1.206:5555 uninstall com.melisma.app.debug
+adb -s 192.168.1.206:5555 install "C:\\path\\to\\melisma-32bit-v2.2-TEST.apk"
+```
+
 ## v2.1 TV playback-control fix — 32-bit TEST APK
 
 **[Successful GitHub build: download here](https://github.com/MixterVee/Melisma-32bit/actions/runs/41555096341)**
