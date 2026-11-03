@@ -6,6 +6,7 @@ on:
     paths:
       - 'scripts/patch_tv_ui.py'
       - 'scripts/patch_tv_transport.py'
+      - 'scripts/patch_tv_seek_escape.py'
       - 'scripts/patch_abis.py'
       - '.github/workflows/test-32bit.yml'
   workflow_dispatch:
@@ -58,6 +59,9 @@ jobs:
       - name: Fix Cinema and Lyrics transport D-pad focus
         run: python3 automation/scripts/patch_tv_transport.py melisma
 
+      - name: Fix seek-slider focus trap (Up/Down/Back)
+        run: python3 automation/scripts/patch_tv_seek_escape.py melisma
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
@@ -91,11 +95,11 @@ jobs:
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify "$APK"
 
       - name: Prepare test APK
-        run: cp melisma/app/build/outputs/apk/debug/app-debug.apk melisma-32bit-v2.1-TEST.apk
+        run: cp melisma/app/build/outputs/apk/debug/app-debug.apk melisma-32bit-v2.2-TEST.apk
 
       - name: Upload test APK
         uses: actions/upload-artifact@v4
         with:
-          name: melisma-32bit-v2.1-test-${{ steps.version.outputs.tag }}
-          path: melisma-32bit-v2.1-TEST.apk
+          name: melisma-32bit-v2.2-test-${{ steps.version.outputs.tag }}
+          path: melisma-32bit-v2.2-TEST.apk
           retention-days: 30
