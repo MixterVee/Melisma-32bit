@@ -270,17 +270,9 @@ nowbar = replace_once(nowbar,
     "IconButton(onClick = onNext, enabled = transport.skipNext, modifier = Modifier.tvTransportFocus()) {",
     "NowBar next focus")
 nowbar = replace_once(nowbar,
-    """            modifier = Modifier
-                .fillMaxWidth()
-                .height(24.dp),
-        )
-    """,
-    """            modifier = Modifier
-                .fillMaxWidth()
-                .height(24.dp)
-                .tvTransportFocus(RoundedCornerShape(8.dp)),
-        )
-    """, "NowBar seek slider focus")
+    """                .height(24.dp),""",
+    """                .height(24.dp)
+                .tvTransportFocus(RoundedCornerShape(8.dp)),""", "NowBar seek slider focus")
 nowbar = replace_once(nowbar,
     """                    .background(Color.White.copy(alpha = 0.08f))
                     .pointerInput(Unit) { detectTapGestures { onOpenSource() } },""",
