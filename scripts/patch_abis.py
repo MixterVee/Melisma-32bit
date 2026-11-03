@@ -11,7 +11,7 @@ args = parser.parse_args()
 source = args.gradle_file.read_text(encoding="utf-8")
 if args.mode == "test":
     expected = 'ndk { abiFilters += listOf("arm64-v8a", "x86_64") }'
-    replacement = 'ndk { abiFilters += listOf("armeabi-v7a") }'
+    replacement = 'ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }'
 else:
     expected = 'ndk { abiFilters += "arm64-v8a" }'
     replacement = 'ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }'
