@@ -1,5 +1,20 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2.5.1 — Down reaches playback without showing the toolbar
+
+**[GitHub Actions test build v2.5.1](https://github.com/MixterVee/Melisma-32bit/actions/runs/41575060841)**
+
+Under **Artifacts**, download **`melisma-universal-v2.5.1-test-v2.11.0`**. Unzip it to get **`melisma-universal-v2.5.1-TEST.apk`**.
+
+Remote behaviour to verify on the Onn:
+- From the main lyric display with the top toolbar hidden, press **Down** to focus **Play/Pause** directly.
+- Do not unhide the toolbar when using that shortcut.
+- Once inside the player, normal **Up/Down/Left/Right** navigation (seek, skip and Open Player) must remain usable.
+- **Up** while focus is on the idle root reveals the toolbar, with the previously-added hold-to-adjust timing shortcut still available.
+- Settings, welcome screens, quick timing panel and selection mode must keep their own navigation.
+
+Source changes track whether the playback panel already owns remote focus, so Down is not stolen from the player controls. The debug APK still uses temporary GitHub-run signing and may require uninstalling the old `com.melisma.app.debug` test app before installing. **This erases the test package's settings, not the official Melisma app.** The universal package includes both `armeabi-v7a` and `arm64-v8a`; device-level navigation remains to be tested.
+
 ## v2.5 UNIVERSAL test build — Onn, TCL and Nvidia Shield
 
 **[Successful v2.5 build with downloadable APK](https://github.com/MixterVee/Melisma-32bit/actions/runs/41563268067)**
