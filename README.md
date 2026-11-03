@@ -1,5 +1,20 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2.6 — quick timing first, accessible Deezer seek state, calmer colour changes
+
+**[Universal Android TV v2.6 build (download the artifact)](https://github.com/MixterVee/Melisma-32bit/actions/runs/41670720750)**
+
+Under **Artifacts**, download `melisma-universal-v2.6-test-v2.11.0` and unzip `melisma-universal-v2.6-TEST.apk`. GitHub action checks both `armeabi-v7a` and `arm64-v8a`. This is a debug package `com.melisma.app.debug`; uninstall older debug builds before installing if signatures differ. The official release app (`com.melisma.app`) is separate.
+
+Changes from v2.5.1:
+
+1. The **±ms** TV-only button is now **the first top-toolbar button** (far left) and gets initial focus when the toolbar is shown, instead of Cinema. It opens the side timing panel while the lyrics remain visible; offset continues to reset on a different song and persist on replay of the same track.
+2. Where the music app's media session does **not** advertise `ACTION_SEEK_TO`, the disabled seek slider is **focusable on TV** with a clear *Seeking unavailable from music app* message. It preserves remote Up/Down/Back escape and never attempts an unauthorized seek. This is intended to distinguish Deezer playback limitations from Melisma D-pad navigation issues; Spotify's working seek control is unchanged.
+3. Animated colour-field transitions are extended from about 1 second to **3.4 seconds** with slower easing. The underlying base palette also blends smoothly rather than changing immediately. The first frame with no outgoing background still displays promptly.
+4. All previous custom TV improvements are retained, including direct remote Down to playback when the toolbar is hidden, the Settings sheet drag-handle fix and all-section D-pad focus improvements.
+
+**Testing requested:** On a TCL/Onn/Shield, compare Deezer and Spotify during music playback; move from Pause to the seek position; check the ±ms button is first and highlighted when the top toolbar is opened; change songs to assess gradual background colour transitions. Device-level behaviour remains unverified until tested using the actual remote.
+
 ## v2.5.1 — Down reaches playback without showing the toolbar
 
 **[GitHub Actions test build v2.5.1](https://github.com/MixterVee/Melisma-32bit/actions/runs/41575060841)**
