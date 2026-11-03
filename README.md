@@ -1,5 +1,11 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2.6.4 — Android TV Language menu focus fix
+
+**[Universal Android TV v2.6.4 test APK](https://github.com/MixterVee/Melisma-32bit/actions/runs/41714977532)** — under **Artifacts**, download `melisma-universal-v2.6.4-test-v2.11.0` and extract `melisma-universal-v2.6.4-TEST.apk`.
+
+Restores remote **Down** navigation from the expanded **Settings → Language** header into the actual first setting, **Romanization (文A)**. The first-focus mapping still targeted the pre-v2.6.2 label ("Romanization"), so the header intercepted Down but could not transfer focus. The mapping now matches the visible setting, allowing access to the remaining language controls. Includes all v2.6.3 adjustments and prior improvements.
+
 ## v2.6.3 — precise Cover Blur D-pad adjustment
 
 **[Universal Android TV v2.6.3 test build](https://github.com/MixterVee/Melisma-32bit/actions/runs/41713460013)** — under **Artifacts**, download `melisma-universal-v2.6.3-test-v2.11.0` and extract `melisma-universal-v2.6.3-TEST.apk`.
