@@ -1,5 +1,11 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2.6.3 — precise Cover Blur D-pad adjustment
+
+**[Universal Android TV v2.6.3 test build](https://github.com/MixterVee/Melisma-32bit/actions/runs/41713460013)** — under **Artifacts**, download `melisma-universal-v2.6.3-test-v2.11.0` and extract `melisma-universal-v2.6.3-TEST.apk`.
+
+Fixes the **Settings → Background → Cover blur** slider on Android TV. The range is 0–67; fractional D-pad adjustments were truncated by `toInt()` and could decrease on Left but not increase on Right. The blur slider now exposes 67 exact increments and rounds to the nearest integer. **Left = −1** and **Right = +1** per D-pad press. All other slider sensitivities are unchanged. Includes the v2.6.2 language preferences and v2.6.1 Shield background transition improvements.
+
 ## v2.6.2 — persistent language preferences, improved Shield/Amazon Music fades
 
 **[Download Android TV universal v2.6.2 test APK from GitHub Actions](https://github.com/MixterVee/Melisma-32bit/actions/runs/41712641196)**
