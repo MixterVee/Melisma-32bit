@@ -390,7 +390,7 @@ private fun Modifier.tvFocusOutline(): Modifier {
     }
     var focused by remember { mutableStateOf(false) }
     return this
-        .onFocusChanged { focused = it.isFocused }
+        .onFocusChanged { focused = it.hasFocus }
         .border(
             if (focused) 2.dp else 0.dp,
             if (focused) Color(0xFF00D5FF) else Color.Transparent,
