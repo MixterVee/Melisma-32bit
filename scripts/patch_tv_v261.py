@@ -107,7 +107,7 @@ private fun StillCoverBackground(
                             floatArrayOf(
                                 0.55f, 0f, 0f, 0f, 0f,
                                 0f, 0.55f, 0f, 0f, 0f,
-                                0f, 0f, 0f, 1f, 0f,
+                                0f, 0f, 0.55f, 0f, 0f,
                                 0f, 0f, 0f, 1f, 0f,
                             ),
                         ),
@@ -155,12 +155,6 @@ private fun StillCoverBackground(
 }
 
 """
-# Preserve the original colour matrix (which has exactly 4 rows).
-replacement = replacement.replace(
-    """                                0f, 0f, 0f, 1f, 0f,
-                                0f, 0f, 0f, 1f, 0f,""",
-    """                                0f, 0f, 0f, 1f, 0f,""",
-)
 bg = bg[:start] + replacement + bg[end:]
 bg_path.write_text(bg, encoding="utf-8")
 print("TV v2.6.1: static album/artist backgrounds now crossfade for 3.4 seconds; transient artwork gaps retain the previous cover.")
