@@ -86,6 +86,10 @@ jobs:
         if: steps.version.outputs.build == 'true'
         run: python3 automation/scripts/patch_tv_transport.py melisma
 
+      - name: Fix seek-slider navigation in TV builds
+        if: steps.version.outputs.build == 'true'
+        run: python3 automation/scripts/patch_tv_seek_escape.py melisma
+
       - name: Set up Java 17
         if: steps.version.outputs.build == 'true'
         uses: actions/setup-java@v4
