@@ -110,6 +110,10 @@ jobs:
         if: steps.version.outputs.build == 'true'
         run: python3 automation/scripts/patch_tv_v26.py melisma
 
+      - name: Smooth Shield album-art transitions across background styles
+        if: steps.version.outputs.build == 'true'
+        run: python3 automation/scripts/patch_tv_v261.py melisma
+
       - name: Set up Java 17
         if: steps.version.outputs.build == 'true'
         uses: actions/setup-java@v4
