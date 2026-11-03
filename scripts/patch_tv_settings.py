@@ -79,7 +79,7 @@ rep("""    Column(Modifier.fillMaxWidth()) {
                         Modifier.focusProperties { down = firstBackgroundChoice }
                     else Modifier
                 )
-                .onFocusChanged { headerFocused = it.isFocused }
+                .onFocusChanged { headerFocused = it.hasFocus }
                 .onPreviewKeyEvent { event ->
                     if (tv && headerFocused && backgroundSection && open &&
                         event.type == KeyEventType.KeyDown && event.key == Key.DirectionDown
@@ -187,7 +187,7 @@ rep("""private fun ChoiceChip(
     Box(
         modifier
             .bringIntoViewRequester(bringIntoView)
-            .onFocusChanged { focused = it.isFocused }
+            .onFocusChanged { focused = it.hasFocus }
             .border(
                 width = if (tv && focused) 3.dp else 0.dp,
                 color = if (tv && focused) Color(0xFF00D5FF) else Color.Transparent,
