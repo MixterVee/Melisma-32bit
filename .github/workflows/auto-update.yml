@@ -102,6 +102,10 @@ jobs:
         if: steps.version.outputs.build == 'true'
         run: python3 automation/scripts/patch_tv_sync_v25.py melisma
 
+      - name: Fix remote Down navigation with hidden top toolbar
+        if: steps.version.outputs.build == 'true'
+        run: python3 automation/scripts/patch_tv_hidden_down.py melisma
+
       - name: Set up Java 17
         if: steps.version.outputs.build == 'true'
         uses: actions/setup-java@v4
