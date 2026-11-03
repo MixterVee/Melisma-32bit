@@ -82,6 +82,10 @@ jobs:
         if: steps.version.outputs.build == 'true'
         run: python3 automation/scripts/patch_tv_ui.py melisma
 
+      - name: Apply TV v2.1 remote playback controls
+        if: steps.version.outputs.build == 'true'
+        run: python3 automation/scripts/patch_tv_transport.py melisma
+
       - name: Set up Java 17
         if: steps.version.outputs.build == 'true'
         uses: actions/setup-java@v4
