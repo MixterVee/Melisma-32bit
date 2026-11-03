@@ -34,6 +34,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 """, "PlayerScreen imports input focus")
 
@@ -153,11 +155,7 @@ player = change(player,
                     // Fixed-size TV slot remains while controls fade: lyrics never jump.
                     Box(Modifier.statusBarsPadding().then(if (tvMode) Modifier.height(56.dp) else Modifier)) {
                         if (tvMode) {
-                            AnimatedVisibility(
-                                visible = toolbarVisible || showSettings,
-                                enter = fadeIn(animationSpec = tween(220)),
-                                exit = fadeOut(animationSpec = tween(260)),
-                            ) { controls() }
+                            TvFadingTopControls(visible = toolbarVisible || showSettings) { controls() }
                         } else controls()
                     }
                 } else {
@@ -311,6 +309,16 @@ player = change(player,
 }""", "high contrast text chip focus")
 
 player += """
+
+/** Fade top TV controls outside of the enclosing ColumnScope, using the unscoped overload. */
+@Composable
+private fun TvFadingTopControls(visible: Boolean, content: @Composable () -> Unit) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(animationSpec = tween(220)),
+        exit = fadeOut(animationSpec = tween(260)),
+    ) { content() }
+}
 
 /**
  * Unbranded colour field used only by background renderers when media has no cover art.
