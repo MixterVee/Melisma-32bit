@@ -56,7 +56,7 @@ private fun firstTvSettingFocus(type: String, label: String): Modifier {
                         else "Clear the lyrics cache"
         else -> null
     }
-    return if (expected?.first == type && expected.second == label) {
+    return if (expected?.first == type && expected?.second == label) {
         Modifier.focusRequester(entry.requester)
     } else Modifier
 }
