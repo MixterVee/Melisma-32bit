@@ -1,5 +1,17 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2.6.2 — persistent language preferences, improved Shield/Amazon Music fades
+
+**[Download Android TV universal v2.6.2 test APK from GitHub Actions](https://github.com/MixterVee/Melisma-32bit/actions/runs/41712641196)**
+
+Under **Artifacts**, download `melisma-universal-v2.6.2-test-v2.11.0` and unzip `melisma-universal-v2.6.2-TEST.apk`. Compatible with ARMv7 32-bit and ARM64 64-bit Android TV hardware.
+
+- **Global language controls:** `文A` Romanization and the Translate toolbar icon have been removed. Find persistent **Romanization (文A)** and **Lyric translation (global)** in **Settings → Language**. Turning either **Off** persists across songs, services, and restarts on that device. No source auto-enables these settings when the track changes.
+- **Shield artwork transitions (v2.6.1):** Still Cover Art / Artist Header styles crossfade artwork over 3.4 seconds instead of jumping, and the renderer holds the preceding cover through brief player artwork gaps instead of flashing a synthetic fallback.
+- **Existing v2.6:** Smooth base-palette and animated background crossfades, first-position **±ms** button, and clearer D-pad focus on seek-disabled music apps.
+
+This is a debug APK: a matching debug installation can update in place, but a different debug signature may require uninstalling the previous debug app first. Do not uninstall the official Melisma release to install a test APK.
+
 ## v2.6.1 — Shield / Amazon Music album-art transition fix
 
 **[Universal v2.6.1 test APK (GitHub Actions)](https://github.com/MixterVee/Melisma-32bit/actions/runs/41712322268)**
