@@ -37,8 +37,8 @@ rep("import androidx.compose.ui.focus.focusRequester\n",
     """import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusProperties
 """, "focus properties import")
-rep("import androidx.compose.ui.platform.LocalContext\n",
-    """import androidx.compose.ui.platform.LocalContext
+rep("import androidx.compose.ui.focus.focusProperties\n",
+    """import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -63,7 +63,7 @@ rep("""    Column(Modifier.fillMaxWidth()) {
                 .clickable(onClick = onToggle)
                 .padding(vertical = 14.dp),
 """,
-    """    val backgroundSection = title == "Background"
+    """    val backgroundSection = title == "Background" || title == "View"
     val firstBackgroundChoice = remember { FocusRequester() }
     val tv = LocalContext.current.packageManager.hasSystemFeature(
         android.content.pm.PackageManager.FEATURE_LEANBACK
@@ -111,7 +111,7 @@ rep("""    Column(Modifier.fillMaxWidth().padding(top = 4.dp)) {
             label,
 """,
     """    val firstBackgroundChoice =
-        if (label == "Style") LocalBackgroundFirstChoice.current else null
+        if (label == "Style" || label == "Layout") LocalBackgroundFirstChoice.current else null
     Column(Modifier.fillMaxWidth().padding(top = 4.dp).focusGroup()) {
         Text(
             label,
