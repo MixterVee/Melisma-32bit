@@ -1,5 +1,30 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2.4 — Settings-wide D-pad navigation audit
+
+**[Successful GitHub build # v2.4](https://github.com/MixterVee/Melisma-32bit/actions/runs/41558999365)**
+
+Download the **`melisma-32bit-v2.4-test-v2.11.0`** artifact from the run's **Artifacts** section. Unzip it to get **`melisma-32bit-v2.4-TEST.apk`**.
+
+This release extends the v2.3 Background Style navigation fix across Melisma's Settings screen:
+
+- Group expanded settings sections and their choice rows for remote traversal.
+- Explicitly route Down from most expanded section headers into their first control.
+- Focus all choice-button groups (Layout, Style, Spotify Canvas, fonts, translations, etc.), not only Background.
+- Give toggles, sliders, actions, text fields, drag handles and the Settings Help button visible focus styling.
+- Move a settings slider's focus Up/Down rather than trapping it; Left/Right still adjust the value.
+- Scroll commonly focused controls into view.
+- Preserve the v2.2 Cinema playback and seek-slider escape fixes.
+
+**Limitations:** Settings with changing/dynamic content, such as Players to follow, still rely on Compose's focus search. Passing CI proves the source compiles and is 32-bit compatible, but cannot prove every Onn/TCL remote navigation path. Please test with your actual remote before considering the settings fixed.
+
+Install: GitHub debug signing changes each run, so uninstall the old custom `com.melisma.app.debug` test app before installing this one. This deletes only that test app's saved settings. Do not uninstall the official Melisma app.
+
+```powershell
+adb -s 192.168.1.206:5555 uninstall com.melisma.app.debug
+adb -s 192.168.1.206:5555 install "C:\\path\\to\\melisma-32bit-v2.4-TEST.apk"
+```
+
 ## v2.2 — Fix seek bar remote focus trap
 
 **[GitHub Actions v2.2 build](https://github.com/MixterVee/Melisma-32bit/actions/runs/41556450078)**
