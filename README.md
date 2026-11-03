@@ -1,5 +1,18 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2.6.1 — Shield / Amazon Music album-art transition fix
+
+**[Universal v2.6.1 test APK (GitHub Actions)](https://github.com/MixterVee/Melisma-32bit/actions/runs/41712322268)**
+
+Under **Artifacts** download `melisma-universal-v2.6.1-test-v2.11.0`, then unzip `melisma-universal-v2.6.1-TEST.apk`. This build retains the original 32-bit/64-bit ARM universal APK support and TV navigation/timing features.
+
+Fixes over v2.6:
+- **Still Cover Art / Artist Header** modes now blend the actual reduced artwork images over 3.4 seconds. Previously only their underlying base colour was animated, so the album cover itself could jump to the next song immediately.
+- **Transient no-artwork gaps** in a media session (e.g. on a Shield when changing songs in Amazon Music) keep the outgoing artwork for 2.5 seconds before switching to the synthetic fallback. This avoids a distracting intermediate colour jump if album-art metadata arrives late. This is a preventive fix; the actual Amazon Music transition depends on the media session's metadata timing.
+- Animated Kawarp and Living Classic retain their existing 3.4-second crossfades. v2.6 toolbar ±ms first position and seek focus fixes remain unchanged.
+
+**TV validation:** With Amazon Music on Shield, skip between songs with sharply different album artwork colours and inspect the transition with both Animated and Cover Art backgrounds. This is a debug build and may require uninstalling the previous debug build if signatures differ.
+
 ## v2.6 — quick timing first, accessible Deezer seek state, calmer colour changes
 
 **[Universal Android TV v2.6 build (download the artifact)](https://github.com/MixterVee/Melisma-32bit/actions/runs/41670720750)**
