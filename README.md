@@ -1,5 +1,22 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2.1 TV playback-control fix — 32-bit TEST APK
+
+**[Successful GitHub build: download here](https://github.com/MixterVee/Melisma-32bit/actions/runs/41555096341)**
+
+Scroll to **Artifacts** and download **`melisma-32bit-v2.1-test-v2.11.0`**. Extract the ZIP to get **`melisma-32bit-v2.1-TEST.apk`**.
+
+**What changed:** In v2 the top-menu auto-hide could steal focus from the player's transport buttons, and the global Up handler could intercept navigation. v2.1 avoids stealing playback focus, lets Down from a focused top toolbar move to the player, adds cyan focus borders to the playback/seek/Open Player controls in Cinema and Lyrics views, and lets Back reveal the hidden top toolbar.
+
+**Onn installation:** GitHub Actions signs each debug APK using a new debug keystore. Uninstall the old `com.melisma.app.debug` first (this deletes only the custom test app's settings), then install the extracted new APK. Never uninstall the official `com.melisma.app` by mistake.
+
+```powershell
+adb -s 192.168.1.206:5555 uninstall com.melisma.app.debug
+adb -s 192.168.1.206:5555 install "C:\\path\\to\\melisma-32bit-v2.1-TEST.apk"
+```
+
+**Test on real Onn remote before marking fixed:** focus after five seconds, Down from top menu to Play, Left/Right between Previous/Pause/Next, Up to seek, Down to Open Player, and Back to show top menu. Confirm that Emby casting and song-to-song lyrics stay uninterrupted. Compilation succeeds, but device navigation still needs confirmation.
+
 ## v2 TV test build (Melisma v2.11.0)
 
 **[Successful GitHub build #3](https://github.com/MixterVee/Melisma-32bit/actions/runs/41552335012)**
