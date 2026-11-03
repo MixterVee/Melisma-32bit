@@ -106,6 +106,10 @@ jobs:
         if: steps.version.outputs.build == 'true'
         run: python3 automation/scripts/patch_tv_hidden_down.py melisma
 
+      - name: Apply TV v2.6 timing shortcut, seek status, and slower palettes
+        if: steps.version.outputs.build == 'true'
+        run: python3 automation/scripts/patch_tv_v26.py melisma
+
       - name: Set up Java 17
         if: steps.version.outputs.build == 'true'
         uses: actions/setup-java@v4
