@@ -47,7 +47,7 @@ settings = once(settings,
         contentColor = Color.White,
         // Android TV: prevent a focused/pressed drag handle from moving the modal
         // sheet off-screen. Phone touch and swipe behaviour remains unchanged.
-        dragHandle = if (tvSheet) null else @Composable { BottomSheetDefaults.DragHandle() },
+        dragHandle = { if (!tvSheet) BottomSheetDefaults.DragHandle() },
         sheetGesturesEnabled = !tvSheet,
     ) {""", "disable TV sheet dragging")
 settings = once(settings,
