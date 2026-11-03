@@ -47,7 +47,7 @@ settings = once(settings,
         contentColor = Color.White,
         // Android TV: prevent a focused/pressed drag handle from moving the modal
         // sheet off-screen. Phone touch and swipe behaviour remains unchanged.
-        dragHandle = if (tvSheet) null else { BottomSheetDefaults.DragHandle() },
+        dragHandle = if (tvSheet) null else @Composable { BottomSheetDefaults.DragHandle() },
         sheetGesturesEnabled = !tvSheet,
     ) {""", "disable TV sheet dragging")
 settings = once(settings,
@@ -109,9 +109,6 @@ player = pp.read_text(encoding="utf-8")
 player = once(player, "import com.melisma.app.ui.components.VolumeRow\n",
     "import com.melisma.app.ui.components.VolumeRow\nimport com.melisma.app.ui.components.TvSyncPanel\n",
     "TvSyncPanel import")
-player = once(player, "import androidx.compose.ui.input.key.onPreviewKeyEvent\n",
-    "import androidx.compose.ui.input.key.onPreviewKeyEvent\nimport androidx.compose.ui.input.key.nativeKeyEvent\n",
-    "TV key long press support")
 player = once(player,
     """    var toolbarActivity by remember { mutableIntStateOf(0) }
     var showSettings by remember { mutableStateOf(false) }""",
