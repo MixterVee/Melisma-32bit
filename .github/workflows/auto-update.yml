@@ -114,6 +114,10 @@ jobs:
         if: steps.version.outputs.build == 'true'
         run: python3 automation/scripts/patch_tv_v261.py melisma
 
+      - name: Make language switches Settings-only, persistent across songs
+        if: steps.version.outputs.build == 'true'
+        run: python3 automation/scripts/patch_tv_v262.py melisma
+
       - name: Set up Java 17
         if: steps.version.outputs.build == 'true'
         uses: actions/setup-java@v4
