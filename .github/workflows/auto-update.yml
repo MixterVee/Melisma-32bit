@@ -94,6 +94,10 @@ jobs:
         if: steps.version.outputs.build == 'true'
         run: python3 automation/scripts/patch_tv_settings.py melisma
 
+      - name: Apply all-section TV focus navigation improvements
+        if: steps.version.outputs.build == 'true'
+        run: python3 automation/scripts/patch_tv_settings_all.py melisma
+
       - name: Set up Java 17
         if: steps.version.outputs.build == 'true'
         uses: actions/setup-java@v4
