@@ -22,6 +22,7 @@ on:
       - 'scripts/patch_tv_v273.py'
       - 'scripts/patch_tv_v274.py'
       - 'scripts/patch_tv_v275.py'
+      - 'scripts/patch_tv_v28.py'
       - 'scripts/patch_abis.py'
       - '.github/workflows/test-32bit.yml'
   workflow_dispatch:
@@ -122,6 +123,9 @@ jobs:
       - name: Name the active music app when seeking is unavailable
         run: python3 automation/scripts/patch_tv_v275.py melisma
 
+      - name: Add TV clock clean-screen autohide and confirmed Exit
+        run: python3 automation/scripts/patch_tv_v28.py melisma
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
@@ -158,11 +162,11 @@ jobs:
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify "$APK"
 
       - name: Prepare test APK
-        run: cp melisma/app/build/outputs/apk/debug/app-debug.apk melisma-universal-v2.7.5-TEST.apk
+        run: cp melisma/app/build/outputs/apk/debug/app-debug.apk melisma-universal-v2.8-TEST.apk
 
       - name: Upload test APK
         uses: actions/upload-artifact@v4
         with:
-          name: melisma-universal-v2.7.5-test-${{ steps.version.outputs.tag }}
-          path: melisma-universal-v2.7.5-TEST.apk
+          name: melisma-universal-v2.8-test-${{ steps.version.outputs.tag }}
+          path: melisma-universal-v2.8-TEST.apk
           retention-days: 30
