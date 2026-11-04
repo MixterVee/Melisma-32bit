@@ -1,5 +1,17 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2.8 — optional clock, clean-screen mode, and Exit
+
+**[Melisma Universal v2.8 Android TV test APK](https://github.com/MixterVee/Melisma-32bit/actions/runs/41832807911)** — under **Artifacts**, download `melisma-universal-v2.8-test-v2.11.0` and extract `melisma-universal-v2.8-TEST.apk`.
+
+In **Settings → View** there are two new independently saved options (both default OFF):
+- **Clock in top-right corner:** displays the device's local time in its configured 12/24-hour format. Remains visible when the controls are hidden.
+- **Auto-hide all playback controls:** on Android TV, five seconds after the last remote interaction the top action row, Lyrics bottom play/seek/volume controls, and Cinema transport/seek/volume/**Open [music app]** button disappear. **Up**, **OK**, **Down**, or **Back** brings the controls back. Without this setting, the earlier TV toolbar behaviour is unchanged; background transitions remain as in v2.7.5.
+
+To exit, open **Settings**, choose the **Exit** button beside the help icon, and confirm **Exit Melisma**. This stops following media sessions, asks Android to unbind the notification listener, and closes Melisma's task without stopping the source app's music.
+
+**TV test suggestions:** Turn on both switches, let the remote sit idle and check that the clock stays visible while the UI disappears, then press OK/Up to reveal controls. Test both Lyrics and Cinema, and verify Exit returns to the Android TV home screen. Keep v2.7.5 available as a working fallback until the Shield test is successful.
+
 ## v2.7.5 — show which music app does not allow seeking
 
 **[Melisma Universal v2.7.5 test APK](https://github.com/MixterVee/Melisma-32bit/actions/runs/41753135702)** — download the `melisma-universal-v2.7.5-test-v2.11.0` artifact under **Artifacts** and extract `melisma-universal-v2.7.5-TEST.apk`.
