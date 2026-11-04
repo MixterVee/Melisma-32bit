@@ -55,22 +55,18 @@ player_file.write_text(player, encoding="utf-8")
 
 sheet = settings_file.read_text(encoding="utf-8")
 sheet = once(sheet,
-    """    var headerFocused by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxWidth().focusGroup()) {""",
+    """    var headerFocused by remember { mutableStateOf(false) }""",
     """    var headerFocused by remember { mutableStateOf(false) }
 
     // Opening Background while scrolled near the end of View can leave Style
-    // physically above the Settings viewport. Move focus to the first Style
-    // chip after the expansion starts: ChoiceChip's existing bringIntoView()
-    // then scrolls that top row into view without an extra Up key press.
+    // above the viewport. Move TV focus to the first Style chip after expansion;
+    // its existing BringIntoViewRequester scrolls it into view.
     LaunchedEffect(open, title, tv) {
         if (tv && title == "Background" && open) {
             kotlinx.coroutines.delay(320)
             runCatching { firstBackgroundChoice.requestFocus() }
         }
-    }
-
-    Column(Modifier.fillMaxWidth().focusGroup()) {""",
+    }""",
     "Background auto-focus first visible Style chip")
 
 settings_file.write_text(sheet, encoding="utf-8")
