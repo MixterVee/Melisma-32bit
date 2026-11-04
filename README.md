@@ -1,5 +1,16 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2.8.1 — transparent clock, Exit on main toolbar, and language defaults Off
+
+**[Melisma Universal v2.8.1 Android TV test APK](https://github.com/MixterVee/Melisma-32bit/actions/runs/41843691636)** — open **Artifacts** and download `melisma-universal-v2.8.1-test-v2.11.0`; extract `melisma-universal-v2.8.1-TEST.apk`.
+
+- **Clock:** removed the black translucent rounded background. The time is now plain white text over the artwork, at the same top-right position and with the device's configured 12/24-hour format.
+- **Exit:** moved the confirmed **Exit Melisma** action out of Settings and into the **main toolbar**, immediately after the Settings gear (look for the door-and-arrow icon; scroll toolbar horizontally if required). Confirmation still exits Melisma without stopping music in the source app.
+- **Language defaults for new installs / previously unset preferences:** Romanization **Off**, Furigana **Off** (already its default), automatic Hokkien recognition **Off**, and lyric translation **Off** rather than Provider. Existing explicitly saved preferences are **not reset**; turn them off once under **Settings → Language** if they were saved as On.
+- Preserves v2.8's optional five-second auto-hide, Android TV remote focus, v2.7.5 player-specific seeking and Open app wording, and the tested album-art transitions.
+
+**Test on Shield/Onn:** enable Clock and Auto-hide in Settings → View, confirm the floating clock has no dark box, press Up/OK to reveal the toolbar, select the Exit icon and confirm that the music app keeps playing. For language defaults, check a clean-install profile; an existing profile uses previously saved values.
+
 ## v2.8 — optional clock, clean-screen mode, and Exit
 
 **[Melisma Universal v2.8 Android TV test APK](https://github.com/MixterVee/Melisma-32bit/actions/runs/41832807911)** — under **Artifacts**, download `melisma-universal-v2.8-test-v2.11.0` and extract `melisma-universal-v2.8-TEST.apk`.
