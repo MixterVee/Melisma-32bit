@@ -60,9 +60,7 @@ player_path.write_text(player, encoding="utf-8")
 
 store = store_path.read_text(encoding="utf-8")
 store = once(store,
-    """                // \`package\\u0000label\`, because a label can contain anything a developer typed and a
-                // separator that cannot appear in either half is the only kind worth using.
-                val at = entry.indexOf('\\u0000')
+    """                val at = entry.indexOf('\\u0000')
                 if (at <= 0) null else entry.take(at) to entry.substring(at + 1)""",
     """                // A package name cannot contain a tab, but a display label can.
                 // Split on the first tab only. Legacy NUL-delimited entries are read
