@@ -138,6 +138,10 @@ jobs:
         if: steps.version.outputs.build == 'true'
         run: python3 automation/scripts/patch_tv_v272.py melisma
 
+      - name: Keep outgoing background during lyric loading and persist seen music apps
+        if: steps.version.outputs.build == 'true'
+        run: python3 automation/scripts/patch_tv_v273.py melisma
+
       - name: Set up Java 17
         if: steps.version.outputs.build == 'true'
         uses: actions/setup-java@v4
