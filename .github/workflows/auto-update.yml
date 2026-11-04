@@ -146,6 +146,10 @@ jobs:
         if: steps.version.outputs.build == 'true'
         run: python3 automation/scripts/patch_tv_v274.py melisma
 
+      - name: Show source app in seeking unavailable message
+        if: steps.version.outputs.build == 'true'
+        run: python3 automation/scripts/patch_tv_v275.py melisma
+
       - name: Set up Java 17
         if: steps.version.outputs.build == 'true'
         uses: actions/setup-java@v4
