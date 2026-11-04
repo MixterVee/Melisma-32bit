@@ -134,6 +134,10 @@ jobs:
         if: steps.version.outputs.build == 'true'
         run: python3 automation/scripts/patch_tv_v271.py melisma
 
+      - name: Fix Timing TV Down focus to selectable minus-50 button
+        if: steps.version.outputs.build == 'true'
+        run: python3 automation/scripts/patch_tv_v272.py melisma
+
       - name: Set up Java 17
         if: steps.version.outputs.build == 'true'
         uses: actions/setup-java@v4
