@@ -136,12 +136,11 @@ player = player[:action_start] + action + label + player[selection_start:]
 # uses the same approved bitmap and will remain a separate crossfade animation.
 def replace_named_call_artwork(text, name):
     start = text.index(name + "(")
-    end = text.index("\n                    )", start)
-    call = text[start:end]
-    if call.count("artwork = artwork,") != 1:
-        raise RuntimeError(f"{name}: expected one artwork assignment in call")
-    call = call.replace("artwork = artwork,", "artwork = backgroundArtwork,", 1)
-    return text[:start] + call + text[end:]
+    offset = text.find("artwork = artwork,", start, start + 1200)
+    if offset < 0:
+        raise RuntimeError(f"{name}: artwork argument was not found near call")
+    return (text[:offset] + "artwork = backgroundArtwork," +
+            text[offset + len("artwork = artwork,"):])
 
 player = replace_named_call_artwork(player, "NowBar")
 player = replace_named_call_artwork(player, "MainContent")
