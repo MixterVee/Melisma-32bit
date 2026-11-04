@@ -142,6 +142,10 @@ jobs:
         if: steps.version.outputs.build == 'true'
         run: python3 automation/scripts/patch_tv_v273.py melisma
 
+      - name: Protect old Cover Art against dark interim media bitmaps
+        if: steps.version.outputs.build == 'true'
+        run: python3 automation/scripts/patch_tv_v274.py melisma
+
       - name: Set up Java 17
         if: steps.version.outputs.build == 'true'
         uses: actions/setup-java@v4
