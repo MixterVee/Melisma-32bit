@@ -1,5 +1,16 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2.7.1 — Amazon Music Cover Art crossfade and Settings D-pad focus
+
+**[Download Melisma Universal v2.7.1 test APK](https://github.com/MixterVee/Melisma-32bit/actions/runs/41744578566)** — select **Artifacts** and download `melisma-universal-v2.7.1-test-v2.11.0`; extract `melisma-universal-v2.7.1-TEST.apk`.
+
+- **Cover Art / Artist Header:** Replaced the stateful manual fade with Compose's interruption-aware **Crossfade**. Previously, the incoming bitmap could be drawn at full opacity before the animated fade was reset. Now the entire artwork layer fades in/out over the chosen **Settings → Background → Background transition** duration (1–10 s); repeated Amazon Music artwork updates also go through the crossfade.
+- **Settings → Timing:** The first **Sync offset** row is an explicit Android TV remote focus target, navigable from the section header via **Down**. While focused, **Left/Right** adjust timing by **50 ms** and **Up/Down** navigate to surrounding controls. Other sliders are unaffected.
+- **Settings → Players to follow:** The first real player in the saved player list is now the section's focus target; **Down** can enter the section and move between players.
+- Preserves all previous v2.7 and v2.6.x fixes, including saved **1–10 s** transition duration and 32-/64-bit support.
+
+This is a debug build. Compilation checks cannot prove remote navigation or animation behaviour on a physical Shield, so please test there before considering this a stable baseline.
+
 ## v2.7 — adjustable 1–10 second background transitions
 
 **[Universal Android TV v2.7 test APK](https://github.com/MixterVee/Melisma-32bit/actions/runs/41731567111)** — under **Artifacts**, download `melisma-universal-v2.7-test-v2.11.0` and extract `melisma-universal-v2.7-TEST.apk`.
