@@ -64,18 +64,14 @@ settings = once(settings,
 settings = once(settings,
     """    accent: Color,
     onToggle: (Boolean) -> Unit,
-) {
-    Row(
-        Modifier.fillMaxWidth().padding(vertical = 6.dp),""",
+) {""",
     """    accent: Color,
     onToggle: (Boolean) -> Unit,
     showTvMoveControls: Boolean,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onMoveTop: () -> Unit,
-) {
-    Row(
-        Modifier.fillMaxWidth().padding(vertical = 6.dp),""",
+) {""",
     "ProviderRow TV callbacks")
 settings = once(settings,
     """        Switch(
