@@ -1,5 +1,20 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2.8.2 — Amazon Music 0.5-second auto-next experiment (32-bit Android TV only)
+
+**[Melisma Universal v2.8.2 test build (GitHub Actions)](https://github.com/MixterVee/Melisma-32bit/actions/runs/41888026187)** — once the build completes successfully, open **Artifacts** and extract `melisma-universal-v2.8.2-TEST.apk` from `melisma-universal-v2.8.2-test-v2.11.0`.
+
+This opt-in workaround is designed for the Onn 4K Pro and TCL 32-bit Android TV installations where Amazon Music plays one full song in the background and then stops.
+
+- **Settings → View → Amazon Music auto-next (32-bit TV test)**: Off by default. Toggle it On to test automatic **Next** when Melisma detects **0.5 seconds remaining** in an actively playing Amazon Music song.
+- Checks approximately every **75 milliseconds**, uses the existing media-session playback clock and Next transport, and sends **no more than one** command per song unless the track changes or playback is explicitly restarted from the beginning.
+- **System-specific safety:** the feature and Settings switch require a 32-bit Android TV operating system (`SUPPORTED_64_BIT_ABIS` must be empty), not merely a 32-bit APK. **64-bit Nvidia Shield devices are unaffected**, even if this switch has previously been stored.
+- Only recognizes Amazon Music media sessions, never Deezer, Spotify or Emby. Unknown-duration tracks, tracks shorter than 15 seconds, inactive sessions and sessions that cannot accept Next are skipped.
+- **Known limitation:** skips up to the final half-second of each track. Actual delivery and timing depend on the source player's media session; this is an experiment, not a guaranteed fix.
+- Preserves v2.8.1 transparent clock, main-toolbar Exit, saved language preferences and auto-hide, and all previous background transition patches.
+
+**Suggested test:** On your 32-bit Onn, enable the switch, launch Amazon Music, switch to Melisma, and let several playlist tracks approach their end without pressing anything. Verify that each advances. On the Shield, this option will not appear.
+
 ## v2.8.1 — transparent clock, Exit on main toolbar, and language defaults Off
 
 **[Melisma Universal v2.8.1 Android TV test APK](https://github.com/MixterVee/Melisma-32bit/actions/runs/41843691636)** — open **Artifacts** and download `melisma-universal-v2.8.1-test-v2.11.0`; extract `melisma-universal-v2.8.1-TEST.apk`.
