@@ -334,13 +334,10 @@ player = once(player,
     """                    Box(Modifier.navigationBarsPadding()) { controls() }
                 } else if (settings.viewMode == ViewMode.CINEMA && !selectionMode) {""",
     """                    Box(Modifier.navigationBarsPadding()) {
-                        if (tvMode && settings.tvAutoHideAllControls) {
-                            AnimatedVisibility(
-                                visible = toolbarVisible || showSettings || showSyncPanel,
-                                enter = fadeIn(tween(250)),
-                                exit = fadeOut(tween(250)),
-                            ) { controls() }
-                        } else controls()
+                        if (!tvMode || !settings.tvAutoHideAllControls ||
+                            toolbarVisible || showSettings || showSyncPanel) {
+                            controls()
+                        }
                     }
                 } else if (settings.viewMode == ViewMode.CINEMA && !selectionMode) {""",
     "bottom-position toolbar can also auto-hide")
