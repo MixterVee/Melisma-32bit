@@ -70,10 +70,12 @@ import androidx.compose.material3.TextButton
 sheet = once(sheet,
     """    onShowWelcome: () -> Unit,
     onDismiss: () -> Unit,
+    onTvOffsetChange: ((Int) -> Unit)? = null,
 ) {""",
     """    onShowWelcome: () -> Unit,
     onExitApp: () -> Unit,
     onDismiss: () -> Unit,
+    onTvOffsetChange: ((Int) -> Unit)? = null,
 ) {""",
     "Settings Exit callback")
 sheet = once(sheet,
