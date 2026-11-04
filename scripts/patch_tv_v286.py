@@ -46,9 +46,14 @@ private fun ViewControls(""",
     "Toolbar focus description local")
 
 # Keep layout fixed between focus changes, avoiding jumps while D-pad moves.
+# Locate the BoxWithConstraints inside the customized ViewControls rather
+# than assuming that earlier TV patches left its arguments/comment unchanged.
+view_start = player.index("private fun ViewControls(")
+box_start = player.index("    BoxWithConstraints(", view_start)
+box_end = player.index("\n", box_start) + 1
+box_line = player[box_start:box_end]
 player = once(player,
-    """    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val sideBySide = maxWidth >= 560.dp""",
+    box_line,
     """    val tv = androidx.compose.ui.platform.LocalContext.current.packageManager.hasSystemFeature(
         android.content.pm.PackageManager.FEATURE_LEANBACK
     )
@@ -59,8 +64,7 @@ player = once(player,
         },
     ) {
     Column(Modifier.fillMaxWidth()) {
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val sideBySide = maxWidth >= 560.dp""",
+""" + box_line,
     "Toolbar description state and layout")
 
 player = once(player,
