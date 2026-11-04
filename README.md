@@ -1,5 +1,17 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2.8.6 — TV toolbar focus descriptions and fixed 3.4-second cover-art transition
+
+**[Melisma Universal v2.8.6 test APK (GitHub Actions)](https://github.com/MixterVee/Melisma-32bit/actions/runs/41921627132)** — after a successful build, under **Artifacts** download `melisma-universal-v2.8.6-test-v2.11.0` and extract `melisma-universal-v2.8.6-TEST.apk`.
+
+- **Top toolbar on Android TV:** A short description appears in a dedicated row **underneath** the controls when the remote focuses an icon or chip (including **±ms**, **L↻**, Settings and Exit). Descriptions vanish when the toolbar focus leaves. A fixed caption height prevents the lyrics and controls from jumping while navigating between buttons. Non-TV layouts are unchanged.
+- **Actual album cover images:** The large cover in Cinema and the small thumbnail in Lyrics/Now Playing now transition using a **fixed 3,400ms crossfade** instead of abruptly switching. The renderer holds the last good cover through transient null metadata and lets rapid artwork updates settle before fading.
+- **Cover Art background style:** Its full-screen cover artwork crossfade is **fixed to 3.4 seconds**, separately from the adjustable Background Transition. Other background styles, including the Living/animated fields, retain their saved **1–10-second** transition setting.
+- To reduce double-fetched artwork flashes, the panels reuse the same vetted cover the background already uses, rather than the raw media-session cover on every metadata update.
+- Retains the **experimental 1-second Amazon Music Auto-Next on 32-bit TV only**, lyric-source cycling, remote reorder controls, vertical ±ms timing, clock, auto-hide and Exit from v2.8.5.
+
+**TV testing:** Focus several top toolbar buttons with the D-pad and check the caption underneath without pressing OK. Let several Amazon/Deezer songs change in Cinema and Cover Art background modes; verify the visible covers fade over about **3.4 seconds** while sound and lyrics remain uninterrupted. Also check an animated background with a custom transition setting to confirm it remains adjustable.
+
 ## v2.8.5 — Next Lyrics on the TV remote, Amazon Auto-Next marked Experimental
 
 **[Melisma Universal v2.8.5 test APK (GitHub Actions)](https://github.com/MixterVee/Melisma-32bit/actions/runs/41912088297)** — after the successful build, open **Artifacts**, download `melisma-universal-v2.8.5-test-v2.11.0` and extract `melisma-universal-v2.8.5-TEST.apk`.
