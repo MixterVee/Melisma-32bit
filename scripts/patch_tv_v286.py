@@ -197,27 +197,33 @@ now = once(now,
     "NowBar artwork uses 3400ms crossfade")
 # A temporary lack of art should *not* bypass the smooth cover renderer;
 # render the shared helper in both cases.
-now = once(now,
-    """                if (artwork != null) {
-                    SmoothCoverArt(
-                        artwork = artwork,
-                        modifier = Modifier.size(54.dp),
-                        fallbackSize = 18.dp,
-                    )
-                } else {
-                    Icon(
-                        AppIcons.MusicNote,
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.4f),
-                        modifier = Modifier.size(18.dp),
-                    )
-                }""",
+# Replace the complete existing image / missing-cover conditional with the
+# fade-aware helper. Icon size differs between upstream and TV patches, so do
+# not match an exact fallback icon body.
+def end_brace(source, opening):
+    level = 0
+    for i in range(opening, len(source)):
+        if source[i] == "{":
+            level += 1
+        elif source[i] == "}":
+            level -= 1
+            if level == 0:
+                return i + 1
+    raise RuntimeError("Unclosed Kotlin block")
+
+if_start = now.index("                if (artwork != null) {")
+if_end = end_brace(now, now.index("{", if_start))
+else_open = now.find("else {", if_end, if_end + 25)
+if else_open < 0:
+    raise RuntimeError("NowBar missing-cover fallback else not found")
+else_end = end_brace(now, now.index("{", else_open))
+now = (now[:if_start] +
     """                SmoothCoverArt(
                     artwork = artwork,
                     modifier = Modifier.size(54.dp),
                     fallbackSize = 18.dp,
-                )""",
-    "NowBar null cover retains previous art")
+                )""" +
+    now[else_end:])
 now_file.write_text(now, encoding="utf-8")
 
 # Only the Cover Art BACKGROUND style gets this fixed duration. All other
