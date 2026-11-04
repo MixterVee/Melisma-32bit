@@ -1,5 +1,16 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2.7.3 — preserve outgoing artwork through lyrics lookup
+
+**[Download Melisma Universal v2.7.3 test APK](https://github.com/MixterVee/Melisma-32bit/actions/runs/41748717724)** — select **Artifacts**, download `melisma-universal-v2.7.3-test-v2.11.0`, and extract `melisma-universal-v2.7.3-TEST.apk`.
+
+- **Seamless art during track changes:** the previous album cover now stays visible while Melisma searches for the next track's lyrics (the three centered dots). The old **2.5 s artwork hold** could expire during this lookup and make a long fade blend from a fallback background instead. When the next artwork appears, the selected **1–10 s crossfade** can run directly from the outgoing cover into the next one.
+- **Still handles genuinely missing album art:** if the new song has no cover after its lyric lookup finishes, Melisma falls back to its unbranded gradient after 2.5 seconds instead of holding the wrong cover forever.
+- **Players to follow history:** replaced a NUL character, which is invalid in XML preferences, with a safe delimiter. Previously detected music-app names should now remain listed after restarting Melisma, not just while they have active sessions. Previously readable entries remain compatible.
+- Preserves v2.7.2 Timing remote navigation and other previous fixes.
+
+**Diagnostic:** To check the background handoff, use Amazon Music or Deezer with **Cover Art**, **0 px blur**, **10 s transition**. Change tracks and observe whether the old cover remains behind the loading dots until the new cover begins fading in. Three dots may still appear when lyrics are being retrieved; this patch concerns the artwork *behind* them.
+
 ## v2.7.2 — Shield Timing section D-pad navigation
 
 **[Melisma Universal v2.7.2 test APK](https://github.com/MixterVee/Melisma-32bit/actions/runs/41745929327)** — download the `melisma-universal-v2.7.2-test-v2.11.0` artifact, then extract `melisma-universal-v2.7.2-TEST.apk`.
