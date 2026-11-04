@@ -1,5 +1,18 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2.8.5 — Next Lyrics on the TV remote, Amazon Auto-Next marked Experimental
+
+**[Melisma Universal v2.8.5 test APK (GitHub Actions)](https://github.com/MixterVee/Melisma-32bit/actions/runs/41912088297)** — after the successful build, open **Artifacts**, download `melisma-universal-v2.8.5-test-v2.11.0` and extract `melisma-universal-v2.8.5-TEST.apk`.
+
+**What's new**
+- **Main toolbar → L↻** (next to **±ms**): select with the TV D-pad and press OK to try another enabled, configured lyrics provider for the **current song**. Known sources that returned **no lyrics** or **failed** are skipped. Untried sources are eligible. The selected provider is stored for that one track without changing the global provider order.
+- The quick selector cycles available providers and **Automatic**; once Automatic is reached, the next press starts from the beginning of the provider list, even if the auto-selected source is in the middle. Melisma already announces which source supplied the lyrics when a source switch resolves.
+- **Less blanking:** while an alternative source is being looked up, the previous lyrics remain displayed for that same song. Ordinary track changes still use their normal loading screen. The per-song timing offset resets to **0 ms** when the quick button switches sources, to make it easier to judge each source's original sync.
+- **Settings → View:** **Amazon Music Auto-Next (Experimental)** now clearly warns that it may cause a Prime skip-limit message. It remains **Off by default**, appears only on **32-bit Android TV**, and retains the successful **1-second threshold**. No changes to source playback or artwork fades.
+- Keeps v2.8.4's D-pad **Up / Down / Top** provider ordering buttons, vertical lyrics timing control, clock, Exit and autohide.
+
+**TV test:** While a song is playing, focus **L↻** and press OK; note that the lyrics source changes but Amazon/Deezer music keeps playing. Press again to cycle, including Automatic. For tracks where no other providers have lyrics, the existing words should remain usable. Verify that the Auto-Next toggle says **Experimental** on the 32-bit Onn, and that the Nvidia Shield has no Auto-Next toggle.
+
 ## v2.8.4 — Remote lyric-source ordering and vertical TV timing
 
 **[Melisma Universal v2.8.4 test APK (GitHub Actions)](https://github.com/MixterVee/Melisma-32bit/actions/runs/41903622363)** — after a successful build, under **Artifacts**, extract `melisma-universal-v2.8.4-TEST.apk` from `melisma-universal-v2.8.4-test-v2.11.0`.
