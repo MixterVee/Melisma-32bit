@@ -99,64 +99,37 @@ private fun ActionChip(""",
 private fun ActionChip(""",
     "Toolbar TV focus help below button row")
 
-# These two chips already have proper focus targets. Register their on-focus
-# descriptions without disturbing existing D-pad focus behaviour or callbacks.
-player = once(player,
-    """private fun ActionChip(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    description: String,
-    active: Boolean,
-    accent: Color,
-    onClick: () -> Unit,
-) {
-    Box(
-        Modifier
-            .size(38.dp)""",
-    """private fun ActionChip(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    description: String,
-    active: Boolean,
-    accent: Color,
-    onClick: () -> Unit,
-) {
-    val updateHelp = LocalToolbarFocusHelp.current
-    Box(
-        Modifier
-            .size(38.dp)
-            .onFocusChanged { focus ->
-                updateHelp(if (focus.isFocused) description else null)
-            }""",
-    "ActionChip focus descriptions")
-player = once(player,
-    """private fun LabelChip(
-    label: String,
-    description: String,
-    active: Boolean,
-    accent: Color,
-    onClick: () -> Unit,
-    focusRequester: FocusRequester? = null,
-) {
-    var focused by remember { mutableStateOf(false) }""",
-    """private fun LabelChip(
-    label: String,
-    description: String,
-    active: Boolean,
-    accent: Color,
-    onClick: () -> Unit,
-    focusRequester: FocusRequester? = null,
-) {
-    val updateHelp = LocalToolbarFocusHelp.current
-    var focused by remember { mutableStateOf(false) }""",
-    "LabelChip focus callback")
-# The v2.6 modification added an existing focused state listener on LabelChip:
-# extend it rather than stack another onFocusChanged.
-player = once(player,
-    """            .onFocusChanged { focused = it.isFocused }""",
-    """            .onFocusChanged {
+# Preserve existing high-contrast TV focus handling in both chip types.
+# Patch the two function bodies separately because both contain the same
+# focus-state listener, but have different parameters and UI contents.
+action_start = player.index("private fun ActionChip(")
+label_start = player.index("private fun LabelChip(", action_start)
+selection_start = player.index("@Composable\nprivate fun SelectionBar(", label_start)
+action = player[action_start:label_start]
+label = player[label_start:selection_start]
+action = once(action,
+    "    var focused by remember { mutableStateOf(false) }",
+    "    val updateHelp = LocalToolbarFocusHelp.current\n    var focused by remember { mutableStateOf(false) }",
+    "ActionChip focus help callback")
+action = once(action,
+    ".onFocusChanged { focused = it.isFocused }",
+    """.onFocusChanged {
                 focused = it.isFocused
                 updateHelp(if (it.isFocused) description else null)
             }""",
-    "LabelChip existing focus listener")
+    "ActionChip focus changes")
+label = once(label,
+    "    var focused by remember { mutableStateOf(false) }",
+    "    val updateHelp = LocalToolbarFocusHelp.current\n    var focused by remember { mutableStateOf(false) }",
+    "LabelChip focus help callback")
+label = once(label,
+    ".onFocusChanged { focused = it.isFocused }",
+    """.onFocusChanged {
+                focused = it.isFocused
+                updateHelp(if (it.isFocused) description else null)
+            }""",
+    "LabelChip focus changes")
+player = player[:action_start] + action + label + player[selection_start:]
 
 # Both the compact thumbnail and Cinema panel should see the *approved*
 # image, already protected by the v2.7.4 600ms art handoff. The big background
