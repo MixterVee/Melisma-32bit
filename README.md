@@ -1,5 +1,13 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2.7.4 — track-change handoff without a blank intermediary
+
+**[Melisma Universal v2.7.4 test APK](https://github.com/MixterVee/Melisma-32bit/actions/runs/41750199229)** — download the `melisma-universal-v2.7.4-test-v2.11.0` artifact and extract `melisma-universal-v2.7.4-TEST.apk`.
+
+This revision goes beyond v2.7.3: it holds the *approved last-visible background artwork* until incoming music artwork is ready, rather than passing through any raw/null/near-black media-session placeholder. It defers accepting a new cover while the **three-dot lyrics-loading screen** is active and lets a metadata transition settle for 600ms first, then uses the existing **1–10 s** Cover Art crossfade. If a song never has artwork, the usual unbranded fallback eventually takes over. Other backgrounds, Timing remote navigation, and saved player history fixes are left unchanged.
+
+**Test:** Select **Cover Art**, **0 px Cover Blur**, **10 s Background transition**. On Deezer or Amazon Music change songs: the outgoing cover should remain visible *behind* the loading dots, then blend into the incoming art. A black interval would mean a separate rendering path is still clearing the image, and should be reported rather than assumed fixed.
+
 ## v2.7.3 — preserve outgoing artwork through lyrics lookup
 
 **[Download Melisma Universal v2.7.3 test APK](https://github.com/MixterVee/Melisma-32bit/actions/runs/41748717724)** — select **Artifacts**, download `melisma-universal-v2.7.3-test-v2.11.0`, and extract `melisma-universal-v2.7.3-TEST.apk`.
