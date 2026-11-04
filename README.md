@@ -1,5 +1,17 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2.8.7 — Independent cover/background fades and continuous Cinema artwork
+
+**[Melisma Universal v2.8.7 test build (GitHub Actions)](https://github.com/MixterVee/Melisma-32bit/actions/runs/41925381738)** — once the workflow succeeds, download **Artifacts → `melisma-universal-v2.8.7-test-v2.11.0`**, then extract `melisma-universal-v2.8.7-TEST.apk`.
+
+**Fixes after v2.8.6 testing:**
+- **Background duration restored:** Full-screen **Cover Art background** crossfades now follow **Settings → Background Transition** (for example, your 7.4-second value), just like all other backgrounds. v2.8.6 unintentionally overrode this one style with 3.4 seconds.
+- **Visible cover art is independent:** The large Cinema cover and compact Now Playing image continue to have a hard-coded **3.4-second** crossfade, regardless of the background setting.
+- **No blank cover during song handoffs:** In Cinema view the media panel now stays composed while the next song's lyrics load, preserving the old artwork and its crossfade state. An initially available vetted cover is rendered immediately instead of fading up from a blank frame each time the panel is reconstructed.
+- All prior TV descriptions, Next Lyrics shortcut, source ordering, vertical timing control, clock, and the opt-in experimental Amazon Music Auto-Next (1 second, **32-bit Android TV only**) remain intact.
+
+**Important test:** Set the background slider to **7.4 seconds**, select **Cover Art** background, and play consecutive songs in Cinema view. The cover image should crossfade in ~**3.4s** while the background takes ~**7.4s**. The previous cover should not disappear during a brief lyrics loading indicator. Also test a non-Cinema view and note any remaining brief session loss at track handoff.
+
 ## v2.8.6 — TV toolbar focus descriptions and fixed 3.4-second cover-art transition
 
 **[Melisma Universal v2.8.6 test APK (GitHub Actions)](https://github.com/MixterVee/Melisma-32bit/actions/runs/41921627132)** — after a successful build, under **Artifacts** download `melisma-universal-v2.8.6-test-v2.11.0` and extract `melisma-universal-v2.8.6-TEST.apk`.
