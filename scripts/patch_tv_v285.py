@@ -104,8 +104,12 @@ player = once(player,
     "Next Lyrics toolbar parameter")
 
 player = once(player,
-    """                if (romanizationAvailable) {""",
-    """                if (onNextLyrics != null) {
+    """                // Romanization (文A) is a saved global Language preference.
+                // Never show a per-song switch in the top toolbar.
+""",
+    """                // Romanization (文A) is a saved global Language preference.
+                // Never show a per-song switch in the top toolbar.
+                if (onNextLyrics != null) {
                     LabelChip(
                         "L↻",
                         "Next Lyrics — switch to another source for this song",
@@ -114,7 +118,7 @@ player = once(player,
                         onNextLyrics,
                     )
                 }
-                if (romanizationAvailable) {""",
+""",
     "Next Lyrics remote-focusable chip beside existing ±ms")
 
 player_file.write_text(player, encoding="utf-8")
