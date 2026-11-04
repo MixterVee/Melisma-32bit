@@ -28,6 +28,14 @@ def once(s, old, new, label):
 
 player = player_file.read_text(encoding="utf-8")
 player = once(player,
+    """    var askExitConfirmation by remember { mutableStateOf(false) }""",
+    """    var askExitConfirmation by remember { mutableStateOf(false) }
+    // Tracks a full quick-source cycle, so Automatic does not skip earlier
+    // providers when it selects a best match halfway down the list.
+    var quickLyricsWrapToFirst by remember { mutableStateOf(false) }
+    LaunchedEffect(snapshot.track?.cacheKey) { quickLyricsWrapToFirst = false }""",
+    "reset Next Lyrics cycle when the song changes")
+player = once(player,
     """                        onOpenTvSync = if (tvMode) {
                             {
                                 showSyncPanel = true
@@ -65,6 +73,7 @@ player = once(player,
                                             val index = options.indexOfFirst { it.id == current }
                                             val next = when {
                                                 options.isEmpty() -> null
+                                                saved == null && quickLyricsWrapToFirst -> options.first().id
                                                 index < 0 -> options.first().id
                                                 index == options.lastIndex -> null // Automatic
                                                 else -> options[index + 1].id
@@ -76,6 +85,7 @@ player = once(player,
                                                     android.widget.Toast.LENGTH_SHORT,
                                                 ).show()
                                             } else if (saved != next) {
+                                                quickLyricsWrapToFirst = next == null
                                                 // A manually adjusted offset for the previous
                                                 // provider would distort the next one's sync.
                                                 tvSongOffsetMs = 0
