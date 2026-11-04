@@ -30,6 +30,7 @@ on:
       - 'scripts/patch_tv_v285.py'
       - 'scripts/patch_tv_v286.py'
       - 'scripts/patch_tv_v287.py'
+      - 'scripts/patch_tv_v288.py'
       - 'scripts/patch_abis.py'
       - '.github/workflows/test-32bit.yml'
   workflow_dispatch:
@@ -154,6 +155,9 @@ jobs:
       - name: Restore independent album cover and background transitions
         run: python3 automation/scripts/patch_tv_v287.py melisma
 
+      - name: Show toolbar help captions and reveal opened Background settings
+        run: python3 automation/scripts/patch_tv_v288.py melisma
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
@@ -190,11 +194,11 @@ jobs:
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify "$APK"
 
       - name: Prepare test APK
-        run: cp melisma/app/build/outputs/apk/debug/app-debug.apk melisma-universal-v2.8.7-TEST.apk
+        run: cp melisma/app/build/outputs/apk/debug/app-debug.apk melisma-universal-v2.8.8-TEST.apk
 
       - name: Upload test APK
         uses: actions/upload-artifact@v4
         with:
-          name: melisma-universal-v2.8.7-test-${{ steps.version.outputs.tag }}
-          path: melisma-universal-v2.8.7-TEST.apk
+          name: melisma-universal-v2.8.8-test-${{ steps.version.outputs.tag }}
+          path: melisma-universal-v2.8.8-TEST.apk
           retention-days: 30
