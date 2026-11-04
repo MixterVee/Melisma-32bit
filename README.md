@@ -1,5 +1,13 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2.7.2 — Shield Timing section D-pad navigation
+
+**[Melisma Universal v2.7.2 test APK](https://github.com/MixterVee/Melisma-32bit/actions/runs/41745929327)** — download the `melisma-universal-v2.7.2-test-v2.11.0` artifact, then extract `melisma-universal-v2.7.2-TEST.apk`.
+
+This update specifically repairs **Settings → Timing** on Android TV. The expanded section's **Down** target is now the built-in **−50 ms** clickable button, not the custom slider container that remained unreachable on the NVIDIA Shield. Press OK to subtract 50 ms, use Right to navigate to **Reset** and **+50**, and Down to reach subsequent timing controls. All v2.7.1 Amazon Music Cover Art crossfade, Players to follow and 1–10-second background duration changes remain intact.
+
+The patch builds against Melisma v2.11.0; its D-pad behavior still needs on-device confirmation.
+
 ## v2.7.1 — Amazon Music Cover Art crossfade and Settings D-pad focus
 
 **[Download Melisma Universal v2.7.1 test APK](https://github.com/MixterVee/Melisma-32bit/actions/runs/41744578566)** — select **Artifacts** and download `melisma-universal-v2.7.1-test-v2.11.0`; extract `melisma-universal-v2.7.1-TEST.apk`.
