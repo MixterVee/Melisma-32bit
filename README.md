@@ -1,5 +1,13 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2.7.5 — show which music app does not allow seeking
+
+**[Melisma Universal v2.7.5 test APK](https://github.com/MixterVee/Melisma-32bit/actions/runs/41753001236)** — download the `melisma-universal-v2.7.5-test-v2.11.0` artifact under **Artifacts** and extract `melisma-universal-v2.7.5-TEST.apk`.
+
+- When the active player does not advertise seeking, **Lyrics/NowBar** and **Cinema/MediaPanel** now identify it: `Seeking unavailable from Amazon Music`, `Seeking unavailable from Deezer`, etc., using the live Android media session's app label. If no label is supplied, the previous generic `music app` wording is retained.
+- Preserves the confirmed **v2.7.4 Cover Art fade**, the saved **1–10 s** background transition slider, Timing remote navigation, and all previous 32-/64-bit Android TV improvements.
+- Seeking itself is unchanged: the app never attempts to seek when the active player's media session does not allow it.
+
 ## v2.7.4 — track-change handoff without a blank intermediary
 
 **[Melisma Universal v2.7.4 test APK](https://github.com/MixterVee/Melisma-32bit/actions/runs/41750199229)** — download the `melisma-universal-v2.7.4-test-v2.11.0` artifact and extract `melisma-universal-v2.7.4-TEST.apk`.
