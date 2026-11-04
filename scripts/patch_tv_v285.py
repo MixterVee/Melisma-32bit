@@ -104,28 +104,8 @@ player = once(player,
     "Next Lyrics toolbar parameter")
 
 player = once(player,
-    """                if (onOpenTvSync != null) {
-                    LabelChip(
-                        "±ms",
-                        "Quick timing adjustment for this song",
-                        false,
-                        Color(0xFF00D5FF),
-                        onOpenTvSync,
-                        focusRequester = tvFocusRequester,
-                    )
-                }
-                if (romanizationAvailable) {""",
-    """                if (onOpenTvSync != null) {
-                    LabelChip(
-                        "±ms",
-                        "Quick timing adjustment for this song",
-                        false,
-                        Color(0xFF00D5FF),
-                        onOpenTvSync,
-                        focusRequester = tvFocusRequester,
-                    )
-                }
-                if (onNextLyrics != null) {
+    """                if (romanizationAvailable) {""",
+    """                if (onNextLyrics != null) {
                     LabelChip(
                         "L↻",
                         "Next Lyrics — switch to another source for this song",
@@ -135,7 +115,8 @@ player = once(player,
                     )
                 }
                 if (romanizationAvailable) {""",
-    "Next Lyrics remote-focusable chip beside ±ms")
+    "Next Lyrics remote-focusable chip beside existing ±ms")
+
 player_file.write_text(player, encoding="utf-8")
 
 # The per-song source switch already uses a cancellable fetchJob and emits a
