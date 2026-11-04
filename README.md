@@ -1,5 +1,19 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2.8.3 — Amazon Music Auto-Next at 1 second (32-bit Android TV only)
+
+**[Melisma Universal v2.8.3 test APK — GitHub Actions](https://github.com/MixterVee/Melisma-32bit/actions/runs/41893721648)** — after the workflow completes successfully, scroll to **Artifacts**, download `melisma-universal-v2.8.3-test-v2.11.0`, and extract `melisma-universal-v2.8.3-TEST.apk`.
+
+The v2.8.2 **500ms** experiment advanced several tracks on the Onn 4K Pro before eventually stopping. This test changes only the threshold to **1,000ms** before a song's reported end to improve the chance Amazon Music still exposes a working background media session.
+
+- The existing opt-in toggle under **Settings → View → Amazon Music auto-next (32-bit TV test)** still starts **Off** by default; the label now says **1.0s**.
+- Remains **32-bit Android TV OS only** — 64-bit Nvidia Shield is unaffected, even with a universal APK. No changes for other music apps.
+- Retains previous one-command-per-track limit and 75ms polling, while skipping inactive media sessions, unsupported Next controls and tracks without reliable duration.
+- All v2.8.2 clock, display, language, navigation and exit features remain unchanged.
+- This is a test workaround, not a guaranteed solution; some songs with abrupt endings may lose up to their final second.
+
+**Test:** Enable the toggle on your Onn 4K Pro, play an Amazon Music playlist with Melisma open, and let multiple songs advance. If it fails, report approximately how many tracks played successfully; that will help distinguish timing failure from media-session loss.
+
 ## v2.8.2 — Amazon Music 0.5-second auto-next experiment (32-bit Android TV only)
 
 **[Melisma Universal v2.8.2 test build (GitHub Actions)](https://github.com/MixterVee/Melisma-32bit/actions/runs/41888026187)** — once the build completes successfully, open **Artifacts** and extract `melisma-universal-v2.8.2-TEST.apk` from `melisma-universal-v2.8.2-test-v2.11.0`.
