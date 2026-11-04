@@ -1,5 +1,16 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2.8.4 — Remote lyric-source ordering and vertical TV timing
+
+**[Melisma Universal v2.8.4 test APK (GitHub Actions)](https://github.com/MixterVee/Melisma-32bit/actions/runs/41903622363)** — after a successful build, under **Artifacts**, extract `melisma-universal-v2.8.4-TEST.apk` from `melisma-universal-v2.8.4-test-v2.11.0`.
+
+**Android TV remote improvements:**
+- **Settings → Where lyrics come from:** Each lyric source now has remote-focusable **↑**, **↓**, and **Top** buttons. Navigate using the D-pad and press **OK** to move that source upward, downward, or directly to the top; order saves immediately. Existing drag handle remains available for touch/pointer devices. Source priority breaks ties; Melisma still selects the best available lyric match when sources disagree.
+- **Main toolbar → ±ms (Lyric timing):** The track-specific timing control is now **vertical**, with a centered 0ms position and a moving marker. When focused, press **Down** to make lyrics appear *earlier* (positive offset, +50ms per press); press **Up** to make them *later* (negative offset, −50ms per press). Press **Left** to focus Done, **Right** to focus the timing nudge buttons, or Back to close. The existing ±50 and Reset buttons remain.
+- Existing **Amazon Music Auto-Next at 1.0 seconds** continues to be opt-in and restricted to **32-bit Android TV**; the 64-bit Shield is unaffected by that workaround. No changes were made to the artwork-fade code after a single reported abrupt change in 45 minutes of testing.
+
+**On-device checks:** In Settings, select a provider's **Top** button using the TV remote and verify it moves to the first row. Open ±ms; check that **Down** increases the offset and **Up** decreases it while the visual thumb moves correspondingly, and that Done and Back still close the panel.
+
 ## v2.8.3 — Amazon Music Auto-Next at 1 second (32-bit Android TV only)
 
 **[Melisma Universal v2.8.3 test APK — GitHub Actions](https://github.com/MixterVee/Melisma-32bit/actions/runs/41893721648)** — after the workflow completes successfully, scroll to **Artifacts**, download `melisma-universal-v2.8.3-test-v2.11.0`, and extract `melisma-universal-v2.8.3-TEST.apk`.
