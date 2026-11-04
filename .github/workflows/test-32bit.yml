@@ -19,6 +19,7 @@ on:
       - 'scripts/patch_tv_v27.py'
       - 'scripts/patch_tv_v271.py'
       - 'scripts/patch_tv_v272.py'
+      - 'scripts/patch_tv_v273.py'
       - 'scripts/patch_abis.py'
       - '.github/workflows/test-32bit.yml'
   workflow_dispatch:
@@ -110,6 +111,9 @@ jobs:
       - name: Fix Timing section Down focus on first clickable timing button
         run: python3 automation/scripts/patch_tv_v272.py melisma
 
+      - name: Hold old artwork behind lyrics loading and save detected player list safely
+        run: python3 automation/scripts/patch_tv_v273.py melisma
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
@@ -146,11 +150,11 @@ jobs:
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify "$APK"
 
       - name: Prepare test APK
-        run: cp melisma/app/build/outputs/apk/debug/app-debug.apk melisma-universal-v2.7.2-TEST.apk
+        run: cp melisma/app/build/outputs/apk/debug/app-debug.apk melisma-universal-v2.7.3-TEST.apk
 
       - name: Upload test APK
         uses: actions/upload-artifact@v4
         with:
-          name: melisma-universal-v2.7.2-test-${{ steps.version.outputs.tag }}
-          path: melisma-universal-v2.7.2-TEST.apk
+          name: melisma-universal-v2.7.3-test-${{ steps.version.outputs.tag }}
+          path: melisma-universal-v2.7.3-TEST.apk
           retention-days: 30
