@@ -109,6 +109,13 @@ media = once(media,
             sourceLabel = sourceLabel,
             modifier = Modifier.fillMaxWidth().height(24.dp),""",
     "Cinema seek-unavailable source")
+media = once(media,
+    """                    text = "Open player",
+                    color = accent,""",
+    """                    text = sourceLabel?.trim()?.takeIf { it.isNotEmpty() }
+                        ?.let { "Open $it" } ?: "Open player",
+                    color = accent,""",
+    "Cinema bottom Open player action uses active media app")
 media_file.write_text(media, encoding="utf-8")
 
 helper = focus_file.read_text(encoding="utf-8")
@@ -133,4 +140,4 @@ helper = once(helper,
     "active app in unavailable seek text")
 focus_file.write_text(helper, encoding="utf-8")
 
-print("TV v2.7.5: seeking-unavailable now names the active media app, in Lyrics and Cinema views.")
+print("TV v2.7.5: active media app named in seeking-unavailable hint and Cinema Open player action.")
