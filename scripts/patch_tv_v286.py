@@ -134,22 +134,17 @@ player = player[:action_start] + action + label + player[selection_start:]
 # Both the compact thumbnail and Cinema panel should see the *approved*
 # image, already protected by the v2.7.4 600ms art handoff. The big background
 # uses the same approved bitmap and will remain a separate crossfade animation.
-player = once(player,
-    """                                artwork = artwork,
-                                accent = colors.accent,
-                                transport = snapshot.transport,""",
-    """                                artwork = backgroundArtwork,
-                                accent = colors.accent,
-                                transport = snapshot.transport,""",
-    "NowBar uses approved artwork")
-player = once(player,
-    """            artwork = artwork,
-            colors = colors,
-            permissionGranted = permissionGranted,""",
-    """            artwork = backgroundArtwork,
-            colors = colors,
-            permissionGranted = permissionGranted,""",
-    "Cinema MainContent uses approved artwork")
+def replace_named_call_artwork(text, name):
+    start = text.index(name + "(")
+    end = text.index("\n                    )", start)
+    call = text[start:end]
+    if call.count("artwork = artwork,") != 1:
+        raise RuntimeError(f"{name}: expected one artwork assignment in call")
+    call = call.replace("artwork = artwork,", "artwork = backgroundArtwork,", 1)
+    return text[:start] + call + text[end:]
+
+player = replace_named_call_artwork(player, "NowBar")
+player = replace_named_call_artwork(player, "MainContent")
 player_file.write_text(player, encoding="utf-8")
 
 media = media_file.read_text(encoding="utf-8")
