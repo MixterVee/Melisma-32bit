@@ -1,5 +1,19 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2.8.9 — First-pass TV-only toolbar and Settings cleanup
+
+**[Melisma Universal v2.8.9 test APK (GitHub Actions)](https://github.com/MixterVee/Melisma-32bit/actions/runs/41940774555)** — after a successful build, download **Artifacts → `melisma-universal-v2.8.9-test-v2.11.0`**, extract `melisma-universal-v2.8.9-TEST.apk`.
+
+As approved, **hide rather than delete** controls on Android TV (using the existing Leanback TV detection). On phones and other non-TV devices, all previous controls remain intact. Saved preferences and playback logic are unchanged.
+
+- **TV top toolbar:** Hide **Popup lyrics** and **Select lines to copy**. Keep **Import lyrics file**, **Next Lyrics L↻**, **±ms**, View/Cinema, return-to-current-line, lookup, Settings, Exit, etc.
+- **TV Settings sections hidden:** **Popup lyrics**, **Android Auto**.
+- **TV Settings rows hidden:** **Compact mode** (split screen); **Highlight the line you hold** (touch); **Tap a line to jump there** (touch); **Hold the background still in the floating window**; **Copy all the lyrics** (clipboard).
+- Keep **View**, **Background**, **Timing**, **Players to follow**, **Language**, **Where lyrics come from**, provider tokens, battery savings, storage/backup, About and Developer available on TV. Reorganizing Advanced settings is reserved for a separate, reviewed pass.
+- Keep **v2.8.7's independently working 3.4s visible cover crossfade and user-adjustable 1–10s background transition**, v2.8.8 focus/caption fixes, and the **experimental 1s Amazon Music Auto-Next on 32-bit TVs**.
+
+**Test:** Verify the two TV-only headings and touch-only controls are absent. Confirm Import lyrics and the other toolbar buttons remain, and the TV descriptions/background-navigation fixes still work. Check a track change to confirm the independent fades remain smooth.
+
 ## v2.8.8 — Visible TV toolbar descriptions and Background settings scroll fix
 
 **[Melisma Universal v2.8.8 test APK (GitHub Actions)](https://github.com/MixterVee/Melisma-32bit/actions/runs/41929404089)** — after the successful build, download artifact `melisma-universal-v2.8.8-test-v2.11.0` and extract `melisma-universal-v2.8.8-TEST.apk`.
