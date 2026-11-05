@@ -47,12 +47,10 @@ player_path.write_text(player,encoding="utf-8")
 
 s=sheet_path.read_text(encoding="utf-8")
 s=once(s,
-    """    val context = LocalContext.current
-    var showCredits by remember { mutableStateOf(false) }""",
-    """    val context = LocalContext.current
-    val tvOnlyCleanup = remember(context) {
-        context.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK)
-    }
+    """    var showCredits by remember { mutableStateOf(false) }""",
+    """    val tvOnlyCleanup = LocalContext.current.packageManager.hasSystemFeature(
+        android.content.pm.PackageManager.FEATURE_LEANBACK
+    )
     var showCredits by remember { mutableStateOf(false) }""",
     "TV-only setting visibility")
 
