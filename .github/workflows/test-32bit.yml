@@ -32,6 +32,7 @@ on:
       - 'scripts/patch_tv_v287.py'
       - 'scripts/patch_tv_v288.py'
       - 'scripts/patch_tv_v289.py'
+      - 'scripts/patch_tv_v2810.py'
       - 'scripts/patch_abis.py'
       - '.github/workflows/test-32bit.yml'
   workflow_dispatch:
@@ -162,6 +163,9 @@ jobs:
       - name: Hide phone-only controls and Settings on Android TV
         run: python3 automation/scripts/patch_tv_v289.py melisma
 
+      - name: Reclaim TV screen space with an overlay toolbar
+        run: python3 automation/scripts/patch_tv_v2810.py melisma
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
@@ -198,11 +202,11 @@ jobs:
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify "$APK"
 
       - name: Prepare test APK
-        run: cp melisma/app/build/outputs/apk/debug/app-debug.apk melisma-universal-v2.8.9-TEST.apk
+        run: cp melisma/app/build/outputs/apk/debug/app-debug.apk melisma-universal-v2.8.10-TEST.apk
 
       - name: Upload test APK
         uses: actions/upload-artifact@v4
         with:
-          name: melisma-universal-v2.8.9-test-${{ steps.version.outputs.tag }}
-          path: melisma-universal-v2.8.9-TEST.apk
+          name: melisma-universal-v2.8.10-test-${{ steps.version.outputs.tag }}
+          path: melisma-universal-v2.8.10-TEST.apk
           retention-days: 30
