@@ -1,5 +1,15 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2.8.10 — Reclaim Android TV screen height: toolbar as overlay
+
+**[Melisma Universal v2.8.10 test APK (GitHub Actions)](https://github.com/MixterVee/Melisma-32bit/actions/runs/42054650349)** — after the successful build, download artifact `melisma-universal-v2.8.10-test-v2.11.0`, then extract `melisma-universal-v2.8.10-TEST.apk`.
+
+**Fix:** On TV with top controls selected, the v2.8.8 label fix increased the always-reserved toolbar height from 56dp to 94dp, causing the full-height Cinema cover and lyrics to be pushed down even after the controls auto-hid. v2.8.10 moves the TV top toolbar to a **floating overlay** and removes the permanent vertical gap. The lyric/cover canvas takes the entire screen and does not shift when the bar appears or hides. Buttons and their focus descriptions still appear temporarily at the top and can overlay the upper content while visible. The optional top-right clock keeps its existing 105dp clearance.
+
+The bottom-toolbar position and all non-TV layouts are unchanged, as are the v2.8.7 fixed **3.4s cover** and adjustable **1–10s background** fades, v2.8.9 TV menu cleanup, source switching, and experimental 32-bit Amazon auto-next.
+
+**Test:** In Cinema with Top toolbar and auto-hide on, let controls hide, then confirm the cover fills more height and lyric lines can use the upper screen without a blank band. Press Up to reopen toolbar, focus a button, check help text, then let it hide; the underlying cover/lyrics should not jump. Test Clock on/off as needed.
+
 ## v2.8.9 — First-pass TV-only toolbar and Settings cleanup
 
 **[Melisma Universal v2.8.9 test APK (GitHub Actions)](https://github.com/MixterVee/Melisma-32bit/actions/runs/41940774555)** — after a successful build, download **Artifacts → `melisma-universal-v2.8.9-test-v2.11.0`**, extract `melisma-universal-v2.8.9-TEST.apk`.
