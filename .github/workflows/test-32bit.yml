@@ -33,6 +33,7 @@ on:
       - 'scripts/patch_tv_v288.py'
       - 'scripts/patch_tv_v289.py'
       - 'scripts/patch_tv_v2810.py'
+      - 'scripts/patch_tv_v2811.py'
       - 'scripts/patch_abis.py'
       - '.github/workflows/test-32bit.yml'
   workflow_dispatch:
@@ -166,6 +167,9 @@ jobs:
       - name: Reclaim TV screen space with an overlay toolbar
         run: python3 automation/scripts/patch_tv_v2810.py melisma
 
+      - name: Save TV per-song/provider offsets across restarts
+        run: python3 automation/scripts/patch_tv_v2811.py melisma
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
@@ -182,6 +186,10 @@ jobs:
           SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
           "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Test saved source, offset and settings-backup persistence
+        working-directory: melisma
+        run: ./gradlew :app:testDebugUnitTest --tests com.melisma.app.settings.SongOffsetSettingsTest --no-daemon
 
       - name: Build 32-bit test APK
         working-directory: melisma
@@ -202,11 +210,11 @@ jobs:
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify "$APK"
 
       - name: Prepare test APK
-        run: cp melisma/app/build/outputs/apk/debug/app-debug.apk melisma-universal-v2.8.10-TEST.apk
+        run: cp melisma/app/build/outputs/apk/debug/app-debug.apk melisma-universal-v2.8.11-TEST.apk
 
       - name: Upload test APK
         uses: actions/upload-artifact@v4
         with:
-          name: melisma-universal-v2.8.10-test-${{ steps.version.outputs.tag }}
-          path: melisma-universal-v2.8.10-TEST.apk
+          name: melisma-universal-v2.8.11-test-${{ steps.version.outputs.tag }}
+          path: melisma-universal-v2.8.11-TEST.apk
           retention-days: 30
