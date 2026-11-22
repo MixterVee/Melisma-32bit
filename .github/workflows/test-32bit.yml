@@ -35,6 +35,7 @@ on:
       - 'scripts/patch_tv_v2810.py'
       - 'scripts/patch_tv_v2811.py'
       - 'scripts/patch_tv_v2812.py'
+      - 'scripts/patch_tv_v28121.py'
       - 'scripts/patch_abis.py'
       - '.github/workflows/test-32bit.yml'
   workflow_dispatch:
@@ -174,6 +175,21 @@ jobs:
       - name: Add optional Firebase cloud sync to TV settings
         run: python3 automation/scripts/patch_tv_v2812.py melisma
 
+      - name: Fix Android TV D-pad navigation into Cloud Sync inputs
+        run: python3 automation/scripts/patch_tv_v28121.py melisma
+
+      - name: Verify Cloud Sync first focus target and TV controls
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          s = Path('melisma/app/src/main/java/com/melisma/app/ui/SettingsSheet.kt').read_text()
+          assert '"Cloud sync" -> "cloud" to "Firebase Project ID"' in s
+          assert '.then(firstTvSettingFocus("cloud", "Firebase Project ID"))' in s
+          section=s.split('title = "Cloud sync",',1)[1].split('title = "Storage and backup",',1)[0]
+          assert section.count('.tvFocusOutline()') == 9
+          print('Cloud Sync: first D-pad Down target and 9 focus-visible controls verified')
+          PY
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
@@ -226,11 +242,11 @@ jobs:
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify "$APK"
 
       - name: Prepare test APK
-        run: cp melisma/app/build/outputs/apk/debug/app-debug.apk melisma-universal-v2.8.12-TEST.apk
+        run: cp melisma/app/build/outputs/apk/debug/app-debug.apk melisma-universal-v2.8.12.1-TEST.apk
 
       - name: Upload test APK
         uses: actions/upload-artifact@v4
         with:
-          name: melisma-universal-v2.8.12-test-${{ steps.version.outputs.tag }}
-          path: melisma-universal-v2.8.12-TEST.apk
+          name: melisma-universal-v2.8.12.1-test-${{ steps.version.outputs.tag }}
+          path: melisma-universal-v2.8.12.1-TEST.apk
           retention-days: 30
