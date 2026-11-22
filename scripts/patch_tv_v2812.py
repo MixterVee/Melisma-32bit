@@ -343,6 +343,13 @@ g=once(g,"dependencies {\n    implementation(libs.androidx.core.ktx)",
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.firebase:firebase-firestore")
     implementation(libs.androidx.core.ktx)""","Firebase Auth/Firestore deps")
+# Robolectric's dynamic Android framework download can be rate-limited by
+# repo1.maven.org on CI. Use the standard Apache Maven Central host.
+g += """
+\ntasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
+}
+"""
 gradle.write_text(g,encoding="utf-8")
 
 app=base/"MelismaApp.kt"
