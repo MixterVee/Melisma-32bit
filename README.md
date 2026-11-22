@@ -1,5 +1,21 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2.8.11 — Remember lyric source and timing per song (local memory)
+
+**[Melisma Universal v2.8.11 test APK (GitHub Actions)](https://github.com/MixterVee/Melisma-32bit/actions)** — from the successful workflow run, download artifact `melisma-universal-v2.8.11-test-v2.11.0` and extract `melisma-universal-v2.8.11-TEST.apk`.
+
+**Repeat songs no longer need repeat adjustments (Android TV):**
+- The **preferred lyrics provider was already saved per track** using Melisma's existing source-choice store; that behavior remains unchanged and takes priority over automatic source rankings when available.
+- **±ms changes now auto-save** for the current track and **selected lyrics source**, including changes made from both the quick timing panel and the full Settings timing control.
+- Switching to another provider with **L↻** loads that provider's previously saved timing; switching back restores the first provider's separate correction. The **Automatic** source mode has its own independent correction.
+- When the same recording returns in a playlist, Melisma restores the saved source and timing automatically; restarting the app or TV does not erase them. The existing **Reset** button clears only that song/source's timing correction.
+- Timing entries are stored in normal local SharedPreferences, and thus included in Melisma's **Settings backup/export and restore**. No cloud account or network service is used in v2.8.11; synchronization between devices is reserved for v2.8.12.
+- Song identity follows Melisma's existing stable cache key (Spotify track ID when exposed; otherwise normalized title, artist, and duration bucket). Different recordings with different durations normally have separate corrections. Small metadata differences may still prevent a match; this avoids blindly applying a live recording's correction to a studio version.
+- Changes to the TV timing feature do **not** affect the phone's existing global sync slider. **v2.8.7's** successful fixed **3.4s album cover** and adjustable background fades, v2.8.10 overlay toolbar, and experimental 32-bit Amazon Music 1-second Auto-Next remain unchanged.
+- The build is pinned to the known working **Melisma v2.11.0** upstream foundation. Upstream v2.12.0 requires a separate compatibility review before the TV patch sequence can be upgraded.
+
+**Test:** Choose a familiar track, adjust ±ms by +350, change source using L↻, make another correction, switch back, then leave and replay the first song. Restart Melisma and replay it again. The first provider should still have its +350ms adjustment. Reset that source to 0 and verify that other providers and other songs keep their corrections. Export Settings for a backup before testing an uninstall.
+
 ## v2.8.10 — Reclaim Android TV screen height: toolbar as overlay
 
 **[Melisma Universal v2.8.10 test APK (GitHub Actions)](https://github.com/MixterVee/Melisma-32bit/actions/runs/42054650349)** — after the successful build, download artifact `melisma-universal-v2.8.10-test-v2.11.0`, then extract `melisma-universal-v2.8.10-TEST.apk`.
