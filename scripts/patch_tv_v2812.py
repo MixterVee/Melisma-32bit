@@ -30,6 +30,7 @@ import com.google.firebase.firestore.DocumentChange
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.Source
 import com.melisma.app.settings.Settings
 import com.melisma.app.settings.SettingsStore
@@ -65,6 +66,7 @@ class CloudSyncManager(
     private var firestore: FirebaseFirestore? = null
     private var listener: ListenerRegistration? = null
     @Volatile private var connected = false
+    @Volatile private var applyingRemote = false
 
     /** Values most recently observed locally. Missing means deleted. */
     private var localShadow = snapshot(store.current)
@@ -79,8 +81,14 @@ class CloudSyncManager(
 
     init {
         scope.launch {
-            store.settings.collect { settings ->
-                val now = snapshot(settings)
+            store.settings.collect {
+                // Read the latest value, not a buffered intermediate update from
+                // a multi-record cloud merge.
+                val now = snapshot(store.current)
+                if (applyingRemote) {
+                    synchronized(lock) { localShadow = now }
+                    return@collect
+                }
                 val changed: List<Pair<String, String?>>
                 synchronized(lock) {
                     changed = (now.keys + localShadow.keys).distinct()
@@ -177,12 +185,14 @@ class CloudSyncManager(
         if (firestore == null) return
         _status.value = "Connecting to cloud for " + (user.email ?: "account")
         var firstSnapshot = true
-        listener = collection().addSnapshotListener { snap, error ->
+        listener = collection().addSnapshotListener(MetadataChanges.INCLUDE) { snap, error ->
             if (error != null) {
                 _status.value = "Cloud unavailable: " + (error.localizedMessage ?: "network")
                 return@addSnapshotListener
             }
             if (snap == null) return@addSnapshotListener
+            applyingRemote = true
+            try {
             if (firstSnapshot) {
                 firstSnapshot = false
                 val remoteKeys = snap.documents.mapNotNull { it.getString("key") }.toSet()
@@ -208,6 +218,10 @@ class CloudSyncManager(
                     val value = if (doc.getBoolean("deleted") == true) null else doc.getString("value")
                     handleRemote(key, value, doc.metadata.hasPendingWrites())
                 }
+            }
+            } finally {
+                synchronized(lock) { localShadow = snapshot(store.current) }
+                applyingRemote = false
             }
             _status.value = if (snap.metadata.isFromCache) {
                 "Offline · changes queued safely"
