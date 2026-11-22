@@ -1,0 +1,25 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Private per-Firebase-user sync. No publicly readable correction records.
+    // A client may read/write ONLY the signed-in user's own correction documents.
+    match /users/{userId}/corrections/{recordId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create, update: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly(['key', 'value', 'deleted', 'updatedAt'])
+        && request.resource.data.key is string
+        && request.resource.data.key.size() <= 800
+        && request.resource.data.value is string
+        && request.resource.data.value.size() <= 1000
+        && request.resource.data.deleted is bool
+        && request.resource.data.updatedAt is timestamp;
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
