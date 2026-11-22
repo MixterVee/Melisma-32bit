@@ -193,7 +193,19 @@ jobs:
 
       - name: Test saved source, offset and settings-backup persistence
         working-directory: melisma
-        run: ./gradlew :app:testDebugUnitTest --tests com.melisma.app.settings.SongOffsetSettingsTest --no-daemon
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Robolectric downloads its runtime Android test jar from Maven at
+          # test time; transient HTTP 429 errors are not a product regression.
+          for attempt in 1 2 3; do
+            if ./gradlew :app:testDebugUnitTest --tests com.melisma.app.settings.SongOffsetSettingsTest --no-daemon; then
+              exit 0
+            fi
+            echo "Robolectric test failed (attempt $attempt/3); retrying..."
+            sleep 5
+          done
+          exit 1
 
       - name: Build 32-bit test APK
         working-directory: melisma
