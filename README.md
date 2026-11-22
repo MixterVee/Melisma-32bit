@@ -2,7 +2,7 @@
 
 ## v2.8.11 — Remember lyric source and timing per song (local memory)
 
-**[Melisma Universal v2.8.11 test APK (GitHub Actions)](https://github.com/MixterVee/Melisma-32bit/actions)** — from the successful workflow run, download artifact `melisma-universal-v2.8.11-test-v2.11.0` and extract `melisma-universal-v2.8.11-TEST.apk`.
+**[Melisma Universal v2.8.11 test APK (GitHub Actions)](https://github.com/MixterVee/Melisma-32bit/actions/runs/45023150441)** — from the successful workflow run, download artifact `melisma-universal-v2.8.11-test-v2.11.0` and extract `melisma-universal-v2.8.11-TEST.apk`.
 
 **Repeat songs no longer need repeat adjustments (Android TV):**
 - The **preferred lyrics provider was already saved per track** using Melisma's existing source-choice store; that behavior remains unchanged and takes priority over automatic source rankings when available.
