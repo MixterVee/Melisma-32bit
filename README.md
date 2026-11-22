@@ -1,5 +1,15 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2.8.12.1 — Android TV Cloud Sync focus hotfix
+
+**[v2.8.12.1 test APK (GitHub Actions)](https://github.com/MixterVee/Melisma-32bit/actions/runs/45040623974)** — once the workflow succeeds, download artifact `melisma-universal-v2.8.12.1-test-v2.11.0`, then extract `melisma-universal-v2.8.12.1-TEST.apk`.
+
+**Fix:** Opening Settings → Cloud sync on Android TV expanded the contents but pressing **Down** stayed on the heading. TV navigation already requires each section to register an explicit first-focus target. v2.8.12 introduced its own controls without registering that target. The fix connects **Firebase Project ID** to the section's D-pad Down focus route, then adds visible TV focus outlines and scroll-into-view to all five inputs and four action buttons. No other section or phone layout is changed.
+
+**Remote test:** Open Settings → Cloud sync, press **Down** to focus Firebase Project ID. Verify subsequent D-pad navigation reaches Android App ID, API key, Save Firebase configuration, Account email, Account password, and Sign in / Sync now / Sign out, auto-scrolling to the selected field. Test Back from on-screen keyboard and leaving Settings. Do not publish your account password or API configuration screenshots with sensitive fields visible.
+
+The existing v2.8.11 saved local corrections, Firebase sync implementation, album/background fades and experimental Amazon TV auto-next are preserved.
+
 ## v2.8.12 — Optional Firebase cloud sync of lyrics corrections
 
 **[v2.8.12 test APK (GitHub Actions)](https://github.com/MixterVee/Melisma-32bit/actions/runs/45038481467)** — after the build succeeds, download **Artifacts → `melisma-universal-v2.8.12-test-v2.11.0`** and extract `melisma-universal-v2.8.12-TEST.apk`.
