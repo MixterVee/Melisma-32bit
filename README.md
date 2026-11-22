@@ -2,7 +2,7 @@
 
 ## v2.8.12 — Optional Firebase cloud sync of lyrics corrections
 
-**[v2.8.12 test APK (GitHub Actions)](https://github.com/MixterVee/Melisma-32bit/actions/runs/45038242488)** — after the build succeeds, download **Artifacts → `melisma-universal-v2.8.12-test-v2.11.0`** and extract `melisma-universal-v2.8.12-TEST.apk`.
+**[v2.8.12 test APK (GitHub Actions)](https://github.com/MixterVee/Melisma-32bit/actions/runs/45038481467)** — after the build succeeds, download **Artifacts → `melisma-universal-v2.8.12-test-v2.11.0`** and extract `melisma-universal-v2.8.12-TEST.apk`.
 
 This experimental build adds a TV-friendly **Settings → Cloud sync** section for optional **Firebase Authentication + Cloud Firestore** synchronization. Local v2.8.11 source/timing corrections still work normally without an account or connectivity. Cloud only replicates each recording's selected lyrics provider, and its per-provider ±ms correction, including explicit reset/Automatic tombstones. Different songs/providers use different cloud documents. The Firebase Android SDK handles sign-in persistence, active remote updates, and offline write queues.
 
