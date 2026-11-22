@@ -333,7 +333,7 @@ g=once(g,"dependencies {\n    implementation(libs.androidx.core.ktx)",
 """dependencies {
     // Explicit opt-in Firebase cloud sync. Initialized at runtime with user-provided
     // Firebase project values; no google-services.json or embedded account keys.
-    implementation(platform("com.google.firebase:firebase-bom:35.2.0"))
+    implementation(platform("com.google.firebase:firebase-bom:34.19.0"))
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.firebase:firebase-firestore")
     implementation(libs.androidx.core.ktx)""","Firebase Auth/Firestore deps")
