@@ -39,7 +39,7 @@ on:
   workflow_dispatch:
     inputs:
       upstream_tag:
-        description: 'Optional upstream release tag (leave blank for latest, e.g. v2.11.0)'
+        description: 'Optional upstream release tag (blank uses vetted v2.11.0 baseline)'
         required: false
         default: ''
 
@@ -64,7 +64,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG="${REQUESTED_TAG:-$(gh api repos/MelismaApp/melisma/releases/latest --jq '.tag_name')}"
+          TAG="${REQUESTED_TAG:-v2.11.0}"
           [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Unexpected release tag: $TAG"; exit 1; }
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Testing upstream $TAG"
