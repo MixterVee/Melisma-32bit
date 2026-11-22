@@ -153,6 +153,22 @@ s = replace_once(s,
     "Restore wrap-around provider timing for recording")
 player.write_text(s, encoding="utf-8")
 
+# The app's media-session collector must also notice a change of music app
+# or release when upstream's shared lyrics cache key stays the same.
+container = base / "MelismaApp.kt"
+s = container.read_text(encoding="utf-8")
+s = replace_once(s,
+    """                .distinctUntilChanged { old, new ->
+                    old?.cacheKey == new?.cacheKey && old?.playerId == new?.playerId
+                }
+                .collect { track -> lyrics.setTrack(track) }""",
+    """                .distinctUntilChanged { old, new ->
+                    old?.cacheKey == new?.cacheKey && old?.correctionKey == new?.correctionKey
+                }
+                .collect { track -> lyrics.setTrack(track) }""",
+    "Observe changes of music app and recording with equal lyric cache identity")
+container.write_text(s, encoding="utf-8")
+
 # Expose Firebase's persisted user state for a clear, compact connected view.
 cloud = base / "cloud/CloudSyncManager.kt"
 s = cloud.read_text(encoding="utf-8")
