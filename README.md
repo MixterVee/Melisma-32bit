@@ -1,5 +1,15 @@
 # Melisma 32-bit / Android TV compatibility builds
 
+## v2.8.12 — Optional Firebase cloud sync of lyrics corrections
+
+**[v2.8.12 test APK (GitHub Actions)](https://github.com/MixterVee/Melisma-32bit/actions/runs/45038242488)** — after the build succeeds, download **Artifacts → `melisma-universal-v2.8.12-test-v2.11.0`** and extract `melisma-universal-v2.8.12-TEST.apk`.
+
+This experimental build adds a TV-friendly **Settings → Cloud sync** section for optional **Firebase Authentication + Cloud Firestore** synchronization. Local v2.8.11 source/timing corrections still work normally without an account or connectivity. Cloud only replicates each recording's selected lyrics provider, and its per-provider ±ms correction, including explicit reset/Automatic tombstones. Different songs/providers use different cloud documents. The Firebase Android SDK handles sign-in persistence, active remote updates, and offline write queues.
+
+**No Firebase project, credentials or users are provided with the APK.** To activate cloud sync, create your own Firebase project, enable email/password Auth, install restrictive rules in [firebase/firestore.rules](firebase/firestore.rules), register the **`com.melisma.app.debug`** Android package, then enter the Firebase project ID, Android app ID, and Web API key in Melisma and sign in with the **same Firebase account on each TV**. Complete instructions: [Cloud sync setup and security](docs/cloud-sync.md).
+
+**Notes:** Cloud connectivity and multi-device behavior remain to be tested against a real Firebase project. QR pairing is deferred until a secure pairing backend exists; v2.8.12 uses a one-time email/password sign-in on each device. Melisma's existing 3.4s cover fades, 1–10s background transitions, TV controls, 32-bit Amazon auto-next, and settings backup are unchanged. Upstream remains pinned to the tested **Melisma v2.11.0** code base.
+
 ## v2.8.11 — Remember lyric source and timing per song (local memory)
 
 **[Melisma Universal v2.8.11 test APK (GitHub Actions)](https://github.com/MixterVee/Melisma-32bit/actions/runs/45023150441)** — from the successful workflow run, download artifact `melisma-universal-v2.8.11-test-v2.11.0` and extract `melisma-universal-v2.8.11-TEST.apk`.
