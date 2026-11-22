@@ -37,6 +37,7 @@ on:
       - 'scripts/patch_tv_v2812.py'
       - 'scripts/patch_tv_v28121.py'
       - 'scripts/patch_tv_v28122.py'
+      - 'scripts/patch_tv_v28123.py'
       - 'scripts/patch_abis.py'
       - '.github/workflows/test-32bit.yml'
   workflow_dispatch:
@@ -184,6 +185,9 @@ jobs:
           MELISMA_FIREBASE_API_KEY: ${{ secrets.MELISMA_FIREBASE_API_KEY }}
         run: python3 automation/scripts/patch_tv_v28122.py melisma
 
+      - name: Separate recordings by music app and simplify signed-in Cloud UI
+        run: python3 automation/scripts/patch_tv_v28123.py melisma
+
       - name: Verify Cloud Sync first focus target and TV controls
         run: |
           python3 - <<'PY'
@@ -193,9 +197,13 @@ jobs:
           assert '.then(firstTvSettingFocus("cloud", "Account email"))' in s
           section=s.split('title = "Cloud sync",',1)[1].split('title = "Storage and backup",',1)[0]
           assert section.count('.tvFocusOutline()') == 5
+          assert section.count('firstTvSettingFocus("cloud", "Account email")') == 2
+          assert 'Signed in as:' in section
           assert 'Save Firebase configuration' not in section
+          assert 'track.correctionKey' in Path('melisma/app/src/main/java/com/melisma/app/lyrics/LyricsRepository.kt').read_text()
+          assert 'val correctionKey: String' in Path('melisma/app/src/main/java/com/melisma/app/media/NowPlaying.kt').read_text()
           assert 'val apiKey get() = CloudSyncDefaults.WEB_API_KEY' in Path('melisma/app/src/main/java/com/melisma/app/cloud/CloudSyncManager.kt').read_text()
-          print('Cloud Sync: built-in Firebase config, sign-in focus and 5 focus-visible controls verified')
+          print('Cloud Sync: recording-aware corrections, account UI, both focus paths, built-in Firebase verified')
           PY
 
       - name: Set up Java
@@ -215,7 +223,7 @@ jobs:
           yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
           "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0"
 
-      - name: Test saved source, offset and settings-backup persistence
+      - name: Test saved corrections, recording identities and settings-backup persistence
         working-directory: melisma
         shell: bash
         run: |
@@ -223,7 +231,7 @@ jobs:
           # Robolectric downloads its runtime Android test jar from Maven at
           # test time; transient HTTP 429 errors are not a product regression.
           for attempt in 1 2 3; do
-            if ./gradlew :app:testDebugUnitTest --tests com.melisma.app.settings.SongOffsetSettingsTest --no-daemon; then
+            if ./gradlew :app:testDebugUnitTest --tests com.melisma.app.settings.SongOffsetSettingsTest --tests com.melisma.app.media.RecordingCorrectionKeyTest --no-daemon; then
               exit 0
             fi
             echo "Robolectric test failed (attempt $attempt/3); retrying..."
@@ -250,11 +258,11 @@ jobs:
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify "$APK"
 
       - name: Prepare test APK
-        run: cp melisma/app/build/outputs/apk/debug/app-debug.apk melisma-universal-v2.8.12.2-TEST.apk
+        run: cp melisma/app/build/outputs/apk/debug/app-debug.apk melisma-universal-v2.8.12.3-TEST.apk
 
       - name: Upload test APK
         uses: actions/upload-artifact@v4
         with:
-          name: melisma-universal-v2.8.12.2-test-${{ steps.version.outputs.tag }}
-          path: melisma-universal-v2.8.12.2-TEST.apk
+          name: melisma-universal-v2.8.12.3-test-${{ steps.version.outputs.tag }}
+          path: melisma-universal-v2.8.12.3-TEST.apk
           retention-days: 30
