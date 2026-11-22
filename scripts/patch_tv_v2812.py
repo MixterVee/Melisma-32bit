@@ -191,6 +191,12 @@ class CloudSyncManager(
                 return@addSnapshotListener
             }
             if (snap == null) return@addSnapshotListener
+            // A cached empty snapshot is not proof that the server lacks records.
+            // Do not seed/overwrite the cloud until a server-backed snapshot arrives.
+            if (firstSnapshot && snap.metadata.isFromCache) {
+                _status.value = "Offline · keeping all corrections locally"
+                return@addSnapshotListener
+            }
             applyingRemote = true
             try {
             if (firstSnapshot) {
