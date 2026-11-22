@@ -21,11 +21,11 @@ def once(src,old,new,why):
 s=sp.read_text(encoding="utf-8")
 s=once(s,
     """    val sourceChoices: Map<String, String> = emptyMap(),
-    val translationSource: TranslationSource = TranslationSource.PROVIDER,""",
+    val translationSource: TranslationSource = TranslationSource.OFF,""",
     """    val sourceChoices: Map<String, String> = emptyMap(),
     /** Local-only per-song/per-selected-source timing (also in settings backup). */
     val songOffsets: Map<String, Int> = emptyMap(),
-    val translationSource: TranslationSource = TranslationSource.PROVIDER,""",
+    val translationSource: TranslationSource = TranslationSource.OFF,""",
     "Settings.songOffsets")
 s=once(s,
     """        sourceChoices = prefs.getStringSet(KEY_SOURCE_CHOICES, null).orEmpty().mapNotNull { entry ->
