@@ -59,7 +59,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows Lyrics Preview v0.3";
+        Text = "Melisma Universal · Windows Lyrics Preview v0.3.1";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -379,7 +379,7 @@ internal sealed class LyricsController : Form
     private static HttpClient CreateHttpClient()
     {
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("MelismaWindowsLyricsPreview/0.3.0");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("MelismaWindowsLyricsPreview/0.3.1");
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         return client;
     }
@@ -569,9 +569,22 @@ internal sealed class LyricsCanvas : Control
     private readonly Func<LyricFrame> _frame;
     private static readonly Color Highlight = Color.FromArgb(113, 236, 227);
     private static readonly Color Other = Color.FromArgb(142, 157, 181);
+    private const float SidePadding = 26f;
     private int _lastActive = int.MinValue;
     private int _transitionFrom = -1;
     private long _transitionTick;
+
+    // A visual row remembers its original character offset so enhanced-LRC
+    // word highlighting still follows the right words after a line wraps.
+    private sealed record VisualRow(string Text, int Start);
+    private sealed class TextLayout : IDisposable
+    {
+        public required Font Font { get; init; }
+        public required List<VisualRow> Rows { get; init; }
+        public required float RowHeight { get; init; }
+        public float TotalHeight => Rows.Count * RowHeight;
+        public void Dispose() => Font.Dispose();
+    }
 
     public LyricsCanvas(Func<LyricFrame> frame)
     {
@@ -597,9 +610,9 @@ internal sealed class LyricsCanvas : Control
         if (frame.Lines.Count == 0)
         {
             _lastActive = int.MinValue;
-            Draw(g, "♪", Height * 0.33f, 76, Highlight, true, 120);
-            Draw(g, "Waiting for synchronized lyrics", Height * 0.55f, 22, Color.White, true, 76);
-            Draw(g, frame.Message, Height * 0.67f, 12, Other, false, 65);
+            DrawMessage(g, "♪", Height * 0.33f, 76, Highlight, true);
+            DrawMessage(g, "Waiting for synchronized lyrics", Height * 0.55f, 22, Color.White, true);
+            DrawMessage(g, frame.Message, Height * 0.67f, 12, Other, false);
             return;
         }
 
@@ -612,127 +625,229 @@ internal sealed class LyricsCanvas : Control
         }
 
         int center = active < 0 ? 0 : active;
-        float fontSize = Math.Clamp(Width / 31f, 20, 43);
-        float centerY = Height * 0.50f;
-        float step = Math.Clamp(Height / 6.5f, 52, 105);
+        int first = Math.Max(0, center - 3);
+        int last = Math.Min(frame.Lines.Count - 1, center + 3);
+        float fontSize = Math.Clamp(Width / 31f, 20f, 43f);
+        float middleY = Height * 0.5f;
+        float availableWidth = Math.Max(1f, Width - 2f * SidePadding);
 
-        // Animate adjacent line changes; jump directly on seeks or track changes.
         bool animate = active >= 0 && _transitionFrom >= 0 &&
                        Math.Abs(active - _transitionFrom) == 1;
+        // Ease in and ease out over a fraction of a second. Seeking more than
+        // one line intentionally snaps to the correct position.
         float progress = animate
-            ? Math.Clamp((Environment.TickCount64 - _transitionTick) / 220f, 0f, 1f)
+            ? Math.Clamp((Environment.TickCount64 - _transitionTick) / 340f, 0f, 1f)
             : 1f;
-        float eased = 1f - (1f - progress) * (1f - progress) * (1f - progress);
-        float slide = animate ? Math.Sign(active - _transitionFrom) * step * (1f - eased) : 0f;
+        float eased = progress * progress * (3f - 2f * progress);
 
-        for (int i = -3; i <= 3; i++)
+        var layouts = new Dictionary<int, TextLayout>();
+        var positions = new Dictionary<int, float>();
+        try
         {
-            int index = center + i;
-            if (index < 0 || index >= frame.Lines.Count) continue;
+            for (int index = first; index <= last; index++)
+            {
+                float emphasis = index == active ? eased :
+                    animate && index == _transitionFrom ? 1f - eased : 0f;
+                float points = fontSize * (0.67f + 0.33f * emphasis);
+                layouts.Add(index, MakeLayout(g, frame.Lines[index].Text,
+                    points, emphasis >= 0.5f, availableWidth));
+            }
 
-            float emphasis = index == active ? (animate ? eased : 1f)
-                : index == _transitionFrom && animate ? 1f - eased : 0f;
-            float size = fontSize * (0.67f + 0.33f * emphasis);
-            float lineY = centerY + i * step + slide;
-            var tint = Blend(Other, Highlight, emphasis);
-            var line = frame.Lines[index];
+            positions[center] = middleY;
+            for (int index = center + 1; index <= last; index++)
+                positions[index] = positions[index - 1] +
+                    Separation(layouts[index - 1], layouts[index]);
+            for (int index = center - 1; index >= first; index--)
+                positions[index] = positions[index + 1] -
+                    Separation(layouts[index + 1], layouts[index]);
 
-            if (index == active && line.Words is { Count: > 0 } && progress >= 0.7f)
-                DrawEnhanced(g, line, frame.LyricPositionMs, lineY, size, step * 1.10f);
-            else
-                Draw(g, line.Text, lineY, size, tint, emphasis >= 0.5f, step * 1.10f);
+            float slide = 0;
+            if (animate && layouts.TryGetValue(_transitionFrom, out var previous))
+            {
+                slide = Math.Sign(active - _transitionFrom) *
+                    Separation(previous, layouts[center]) * (1f - eased);
+            }
+
+            for (int index = first; index <= last; index++)
+            {
+                var layout = layouts[index];
+                float y = positions[index] + slide;
+                // When wrapped lines need extra space, skip off-screen
+                // neighbors rather than allowing them to overlap the song.
+                if (y + layout.TotalHeight / 2 < 0 ||
+                    y - layout.TotalHeight / 2 > Height) continue;
+
+                float emphasis = index == active ? eased :
+                    animate && index == _transitionFrom ? 1f - eased : 0f;
+                var color = Blend(Other, Highlight, emphasis);
+                var line = frame.Lines[index];
+
+                int? playedCharacters = null;
+                if (index == active && line.Words is { Count: > 0 } && progress >= 0.7f)
+                {
+                    int count = 0;
+                    foreach (var word in line.Words)
+                    {
+                        if (frame.LyricPositionMs < word.AtMs) break;
+                        count += word.Text.Length;
+                    }
+                    playedCharacters = Math.Clamp(count, 0, line.Text.Length);
+                }
+
+                DrawLayout(g, layout, y,
+                    playedCharacters.HasValue ? Other : color,
+                    playedCharacters);
+            }
+        }
+        finally
+        {
+            foreach (var layout in layouts.Values) layout.Dispose();
         }
     }
 
-    private static Color Blend(Color left, Color right, float amount)
+    private float Separation(TextLayout left, TextLayout right)
     {
-        amount = Math.Clamp(amount, 0f, 1f);
-        return Color.FromArgb(
-            (int)(left.R + (right.R - left.R) * amount),
-            (int)(left.G + (right.G - left.G) * amount),
-            (int)(left.B + (right.B - left.B) * amount));
+        float originalSpacing = Math.Clamp(Height / 6.5f, 52f, 105f);
+        float breathingRoom = Math.Clamp(Height / 55f, 10f, 21f);
+        return Math.Max(originalSpacing,
+            (left.TotalHeight + right.TotalHeight) / 2f + breathingRoom);
     }
 
-    private Font FitFont(Graphics g, string text, float points, bool bold, float availableWidth)
+    private static Color Blend(Color a, Color b, float fraction)
     {
-        var style = bold ? FontStyle.Bold : FontStyle.Regular;
-        float size = Math.Max(12f, points);
-        using var measure = new StringFormat(StringFormat.GenericTypographic)
+        fraction = Math.Clamp(fraction, 0f, 1f);
+        return Color.FromArgb(
+            (int)(a.R + (b.R - a.R) * fraction),
+            (int)(a.G + (b.G - a.G) * fraction),
+            (int)(a.B + (b.B - a.B) * fraction));
+    }
+
+    private static float TextWidth(Graphics g, string text, Font font)
+    {
+        if (text.Length == 0) return 0f;
+        using var format = new StringFormat(StringFormat.GenericTypographic)
         {
             FormatFlags = StringFormatFlags.NoWrap
         };
+        return g.MeasureString(text, font, 10000, format).Width;
+    }
+
+    private static List<VisualRow> Wrap(Graphics g, string text, Font font, float width)
+    {
+        if (TextWidth(g, text, font) <= width || text.Length < 2)
+            return [new VisualRow(text, 0)];
+
+        // Prefer a word boundary near the middle, balancing both visible rows.
+        // Fall back to a character boundary only for a long unbroken token.
+        var breaks = Enumerable.Range(1, text.Length - 1)
+            .Where(i => char.IsWhiteSpace(text[i])).ToList();
+        if (breaks.Count == 0)
+            breaks = Enumerable.Range(1, text.Length - 1).ToList();
+
+        float bestPenalty = float.PositiveInfinity;
+        int bestBreak = -1, bestNextStart = -1;
+        foreach (int split in breaks)
+        {
+            var a = text[..split].TrimEnd();
+            int next = split;
+            while (next < text.Length && char.IsWhiteSpace(text[next])) next++;
+            if (a.Length == 0 || next >= text.Length) continue;
+            var b = text[next..];
+            float wa = TextWidth(g, a, font);
+            float wb = TextWidth(g, b, font);
+            float max = Math.Max(wa, wb);
+            // Width overflow is heavily penalized, while natural balance wins
+            // among split points that both fit.
+            float penalty = Math.Max(0, max - width) * 1000f + Math.Abs(wa - wb);
+            if (penalty < bestPenalty)
+            {
+                bestPenalty = penalty;
+                bestBreak = a.Length;
+                bestNextStart = next;
+            }
+        }
+
+        if (bestBreak < 0)
+            return [new VisualRow(text, 0)];
+
+        return [new VisualRow(text[..bestBreak], 0),
+                new VisualRow(text[bestNextStart..], bestNextStart)];
+    }
+
+    private static TextLayout MakeLayout(Graphics g, string text,
+        float preferredSize, bool bold, float width)
+    {
+        float size = Math.Max(10f, preferredSize);
         while (true)
         {
-            var font = new Font("Segoe UI", size, style, GraphicsUnit.Point);
-            if (size <= 12.01f ||
-                g.MeasureString(text, font, 10000, measure).Width <= availableWidth)
-                return font;
+            var font = new Font("Segoe UI", size,
+                bold ? FontStyle.Bold : FontStyle.Regular, GraphicsUnit.Point);
+            var rows = Wrap(g, text, font, width);
+            bool allFit = rows.All(row => TextWidth(g, row.Text, font) <= width);
+            if (allFit || size <= 10.01f)
+            {
+                return new TextLayout
+                {
+                    Font = font,
+                    Rows = rows,
+                    RowHeight = font.GetHeight(g) * 1.10f
+                };
+            }
             font.Dispose();
-            size = Math.Max(12f, size * 0.88f);
+            size = Math.Max(10f, size * 0.90f);
         }
     }
 
-    private void Draw(Graphics g, string text, float centerY,
-        float points, Color color, bool bold, float boxHeight)
+    private void DrawMessage(Graphics g, string text, float y,
+        float points, Color color, bool bold)
     {
-        var bounds = new RectangleF(26, centerY - boxHeight / 2,
-            Math.Max(1, Width - 52), boxHeight);
-        using var font = FitFont(g, text, points, bold, bounds.Width);
-        using var brush = new SolidBrush(color);
-        using var format = new StringFormat
-        {
-            Alignment = StringAlignment.Center,
-            LineAlignment = StringAlignment.Center,
-            Trimming = StringTrimming.EllipsisCharacter,
-            FormatFlags = StringFormatFlags.NoWrap
-        };
-        g.DrawString(text, font, brush, bounds, format);
+        using var layout = MakeLayout(g, text, points, bold,
+            Math.Max(1f, Width - 2f * SidePadding));
+        DrawLayout(g, layout, y, color, null);
     }
 
-    private void DrawEnhanced(Graphics g, LrcLine line, long lyricTime,
-        float centerY, float points, float boxHeight)
+    private void DrawLayout(Graphics g, TextLayout layout,
+        float centerY, Color color, int? playedCharacters)
     {
-        var bounds = new RectangleF(26, centerY - boxHeight / 2,
-            Math.Max(1, Width - 52), boxHeight);
-        using var font = FitFont(g, line.Text, points, true, bounds.Width);
+        using var normalBrush = new SolidBrush(color);
+        using var playedBrush = new SolidBrush(Highlight);
         using var format = new StringFormat(StringFormat.GenericTypographic)
         {
             Alignment = StringAlignment.Center,
             LineAlignment = StringAlignment.Center,
-            FormatFlags = StringFormatFlags.NoWrap,
-            Trimming = StringTrimming.EllipsisCharacter
-        };
-        using var unplayed = new SolidBrush(Other);
-        using var played = new SolidBrush(Highlight);
-        g.DrawString(line.Text, font, unplayed, bounds, format);
-
-        int playedCharacters = 0;
-        foreach (var word in line.Words!)
-        {
-            if (lyricTime < word.AtMs) break;
-            playedCharacters += word.Text.Length;
-        }
-        if (playedCharacters <= 0) return;
-        if (playedCharacters >= line.Text.Length)
-        {
-            g.DrawString(line.Text, font, played, bounds, format);
-            return;
-        }
-
-        // Reveal the completed words from left to right, keeping the whole line centered.
-        using var measure = new StringFormat(StringFormat.GenericTypographic)
-        {
             FormatFlags = StringFormatFlags.NoWrap
         };
-        float fullWidth = g.MeasureString(line.Text, font, 10000, measure).Width;
-        float prefixWidth = g.MeasureString(line.Text[..playedCharacters], font, 10000, measure).Width;
-        float left = bounds.Left + (bounds.Width - fullWidth) / 2f;
-        var saved = g.Save();
-        g.SetClip(new RectangleF(left - 1, bounds.Top,
-            Math.Min(bounds.Right - left + 1, prefixWidth + 2), bounds.Height),
-            CombineMode.Intersect);
-        g.DrawString(line.Text, font, played, bounds, format);
-        g.Restore(saved);
+
+        float top = centerY - layout.TotalHeight / 2f;
+        float width = Math.Max(1f, Width - 2f * SidePadding);
+        for (int i = 0; i < layout.Rows.Count; i++)
+        {
+            var row = layout.Rows[i];
+            var rect = new RectangleF(SidePadding, top + i * layout.RowHeight,
+                width, layout.RowHeight);
+            g.DrawString(row.Text, layout.Font, normalBrush, rect, format);
+
+            if (!playedCharacters.HasValue) continue;
+            int playedInRow = Math.Clamp(playedCharacters.Value - row.Start,
+                0, row.Text.Length);
+            if (playedInRow == 0) continue;
+            if (playedInRow == row.Text.Length)
+            {
+                g.DrawString(row.Text, layout.Font, playedBrush, rect, format);
+                continue;
+            }
+
+            // The clip is relative to this wrapped row, not the original LRC
+            // line, so multi-row enhanced lyrics highlight correctly.
+            float totalWidth = TextWidth(g, row.Text, layout.Font);
+            float playedWidth = TextWidth(g, row.Text[..playedInRow], layout.Font);
+            float left = rect.Left + (rect.Width - totalWidth) / 2f;
+            var saved = g.Save();
+            g.SetClip(new RectangleF(left - 1f, rect.Top,
+                playedWidth + 2f, rect.Height), CombineMode.Intersect);
+            g.DrawString(row.Text, layout.Font, playedBrush, rect, format);
+            g.Restore(saved);
+        }
     }
 }
 
