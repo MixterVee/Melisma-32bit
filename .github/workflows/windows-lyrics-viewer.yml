@@ -1,0 +1,48 @@
+name: Build Melisma Windows Lyrics Preview
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/windows-lyrics-viewer/**'
+      - '.github/workflows/windows-lyrics-viewer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-lyrics:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore Windows lyrics project
+        run: dotnet restore tools/windows-lyrics-viewer/MelismaLyricsViewer.csproj -r win-x64
+
+      - name: Publish self-contained Windows lyrics preview
+        run: dotnet publish tools/windows-lyrics-viewer/MelismaLyricsViewer.csproj --no-restore -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o lyrics-viewer-dist
+
+      - name: Verify EXE and prepare package
+        shell: pwsh
+        run: |
+          $exe = 'lyrics-viewer-dist/MelismaLyricsViewer.exe'
+          if (-not (Test-Path $exe)) { throw "Missing EXE: $exe" }
+          New-Item -ItemType Directory -Force -Path 'lyrics-kit' | Out-Null
+          Copy-Item $exe 'lyrics-kit/MelismaLyricsViewer.exe'
+          Copy-Item 'tools/windows-lyrics-viewer/README.md' 'lyrics-kit/README.txt'
+          Write-Host ("Melisma Lyrics Viewer: {0:N0} bytes" -f (Get-Item $exe).Length)
+
+      - name: Upload Windows lyrics viewer
+        uses: actions/upload-artifact@v4
+        with:
+          name: Melisma-Windows-Lyrics-Preview-v0.2-x64
+          path: lyrics-kit/*
+          retention-days: 30
