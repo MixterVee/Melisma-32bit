@@ -1,0 +1,98 @@
+name: Build Melisma Foobar Bridge Test Kit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/windows-foobar-bridge/**'
+      - 'tools/windows-media-detector/**'
+      - '.github/workflows/windows-foobar-bridge.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  foobar-bridge-x64:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out Melisma repository
+        uses: actions/checkout@v4
+
+      - name: Fetch Foobar2000 SDK
+        shell: pwsh
+        working-directory: tools/windows-foobar-bridge
+        run: |
+          git clone --depth 1 https://github.com/reupen/foobar2000-sdk-unmodified.git sdk
+
+      - name: Set up Visual Studio MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build PFC x64
+        shell: pwsh
+        working-directory: tools/windows-foobar-bridge
+        run: msbuild "sdk\pfc\pfc.vcxproj" /m /p:Configuration=Release /p:Platform=x64 /p:OutDir="$env:GITHUB_WORKSPACE\tools\windows-foobar-bridge\sdk\pfc\x64\Release\"
+
+      - name: Build Foobar2000 SDK x64
+        shell: pwsh
+        working-directory: tools/windows-foobar-bridge
+        run: msbuild "sdk\foobar2000\SDK\foobar2000_SDK.vcxproj" /m /p:Configuration=Release /p:Platform=x64 /p:OutDir="$env:GITHUB_WORKSPACE\tools\windows-foobar-bridge\sdk\foobar2000\SDK\x64\Release\"
+
+      - name: Build Foobar2000 component client x64
+        shell: pwsh
+        working-directory: tools/windows-foobar-bridge
+        run: msbuild "sdk\foobar2000\foobar2000_component_client\foobar2000_component_client.vcxproj" /m /p:Configuration=Release /p:Platform=x64 /p:OutDir="$env:GITHUB_WORKSPACE\tools\windows-foobar-bridge\sdk\foobar2000\foobar2000_component_client\x64\Release\"
+
+      - name: Build read-only Melisma Foobar bridge x64
+        shell: pwsh
+        working-directory: tools/windows-foobar-bridge
+        run: msbuild "foo_melisma_bridge.vcxproj" /m /p:Configuration=Release /p:Platform=x64 /p:BuildProjectReferences=false
+
+      - name: Package Foobar2000 component
+        shell: pwsh
+        run: |
+          $dll = "tools\windows-foobar-bridge\out\x64\foo_melisma_bridge.dll"
+          if (-not (Test-Path $dll)) { throw "Bridge DLL not built: $dll" }
+          New-Item -ItemType Directory -Force -Path "kit\stage\x64" | Out-Null
+          Copy-Item $dll "kit\stage\x64\foo_melisma_bridge.dll"
+          Compress-Archive -Path "kit\stage\*" -DestinationPath "kit\foo_melisma_bridge.zip" -Force
+          Rename-Item "kit\foo_melisma_bridge.zip" "foo_melisma_bridge.fb2k-component"
+          Remove-Item -Path "kit\stage" -Recurse -Force
+
+      - name: Set up .NET 8 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Publish Windows Melisma Media Detector x64
+        shell: pwsh
+        run: |
+          dotnet restore tools/windows-media-detector/MelismaMediaDetector.csproj -r win-x64
+          dotnet publish tools/windows-media-detector/MelismaMediaDetector.csproj --no-restore -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o windows-detector-dist
+          if (-not (Test-Path "windows-detector-dist\MelismaMediaDetector.exe")) { throw "MelismaMediaDetector.exe not found" }
+          Copy-Item "windows-detector-dist\MelismaMediaDetector.exe" "kit\MelismaMediaDetector.exe"
+          Copy-Item "tools\windows-foobar-bridge\README.md" "kit\README.txt"
+
+      - name: Verify Foobar bridge test kit
+        shell: pwsh
+        run: |
+          $required = @(
+            "kit\foo_melisma_bridge.fb2k-component",
+            "kit\MelismaMediaDetector.exe",
+            "kit\README.txt"
+          )
+          foreach ($file in $required) {
+            if (-not (Test-Path $file)) { throw "Missing test kit file: $file" }
+            Write-Host "$file - $((Get-Item $file).Length) bytes"
+          }
+
+      - name: Upload installable Windows test kit
+        uses: actions/upload-artifact@v4
+        with:
+          name: Melisma-Foobar-Bridge-v0.1-Windows-x64
+          path: |
+            kit/foo_melisma_bridge.fb2k-component
+            kit/MelismaMediaDetector.exe
+            kit/README.txt
+          retention-days: 30
