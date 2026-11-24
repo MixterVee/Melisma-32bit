@@ -1,8 +1,16 @@
-# Melisma Universal — Windows Lyrics Preview v0.3.1
+# Melisma Universal — Windows Lyrics Preview v0.3.2
 
 Windows 11 x64 · Foobar2000 · direct playback bridge
 
-## What's new in v0.3.1
+## What's new in v0.3.2
+
+- **Pre-planned line wrapping**: every line in the song is measured at its eventual highlighted size and split into its final one- or two-line layout before it scrolls into view.
+- **No sudden rewrap**: once a lyric is prepared, its word breaks remain unchanged when it becomes highlighted or the font grows.
+- **Stable scrolling**: all lyric positions are computed in advance from reserved text heights. A 340 ms eased movement scrolls the whole lyric column smoothly between them.
+- **Controller and TV agree**: each viewer independently measures its own width and resolution, so both get stable wrapping without touching playback timing.
+- **Respects resized windows and new tracks**: the display plan rebuilds for a new song, edited LRC content or changed view width, but not for highlight changes.
+
+## Retained from v0.3.1
 
 - **Complete long lyrics without ellipses.** Oversized lines wrap onto two centered rows, including on the TV, using word boundaries when available. Font size adjusts if needed.
 - **No overlapping lyric rows.** Neighboring lines automatically move farther apart when a wrapped line needs extra height.
@@ -21,10 +29,10 @@ These changes apply to both the controller preview and the existing full-screen 
 ## Install and test
 
 1. Leave your existing working Foobar2000 x64 Bridge component installed.
-2. Download the `Melisma-Windows-Lyrics-Preview-v0.3.1-x64` ZIP from the GitHub Actions build for this branch and extract it into a **new** folder (keep v0.3 and v0.2 as backups).
+2. Download the `Melisma-Windows-Lyrics-Preview-v0.3.2-x64` ZIP from the GitHub Actions build for this branch and extract it into a **new** folder (keep v0.3 and v0.2 as backups).
 3. Launch `MelismaLyricsViewer.exe`. Play a song in Foobar2000 and verify that lyrics follow it.
 4. Verify your saved per-song +2000 ms correction is restored automatically, without re-entering it.
-5. Pause, resume, and seek; check smooth transitions on regular lyric changes.
+5. Pause, resume, and seek; check the entire column scrolls smoothly and lyric rows do not suddenly rearrange.
 6. For dual-monitor testing, use **Show on second monitor** with Windows display mode set to **Extend**.
 7. For word highlighting, open an **enhanced** .lrc file that includes inline `<mm:ss.xx>` timestamps. Standard LRCLIB timed lyrics generally provide only line timestamps.
 

@@ -59,7 +59,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows Lyrics Preview v0.3.1";
+        Text = "Melisma Universal · Windows Lyrics Preview v0.3.2";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -379,7 +379,7 @@ internal sealed class LyricsController : Form
     private static HttpClient CreateHttpClient()
     {
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("MelismaWindowsLyricsPreview/0.3.1");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("MelismaWindowsLyricsPreview/0.3.2");
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         return client;
     }
@@ -573,6 +573,13 @@ internal sealed class LyricsCanvas : Control
     private int _lastActive = int.MinValue;
     private int _transitionFrom = -1;
     private long _transitionTick;
+    // Layout belongs to the song and viewport, never to the highlighted
+    // line. Pre-layout all lines at full-size before they scroll into view.
+    private readonly List<TextLayout> _planned = new();
+    private readonly List<string> _plannedTexts = new();
+    private float[] _lineCenters = [];
+    private float _plannedWidth = -1f, _plannedPoints = -1f, _plannedDpi = -1f;
+    private string _plannedSong = "", _plannedArtist = "";
 
     // A visual row remembers its original character offset so enhanced-LRC
     // word highlighting still follows the right words after a line wraps.
@@ -609,13 +616,16 @@ internal sealed class LyricsCanvas : Control
 
         if (frame.Lines.Count == 0)
         {
+            ClearPlan();
             _lastActive = int.MinValue;
+            _transitionFrom = -1;
             DrawMessage(g, "♪", Height * 0.33f, 76, Highlight, true);
             DrawMessage(g, "Waiting for synchronized lyrics", Height * 0.55f, 22, Color.White, true);
             DrawMessage(g, frame.Message, Height * 0.67f, 12, Other, false);
             return;
         }
 
+        EnsurePlan(g, frame);
         int active = frame.ActiveIndex;
         if (active != _lastActive)
         {
@@ -625,84 +635,111 @@ internal sealed class LyricsCanvas : Control
         }
 
         int center = active < 0 ? 0 : active;
-        int first = Math.Max(0, center - 3);
-        int last = Math.Min(frame.Lines.Count - 1, center + 3);
-        float fontSize = Math.Clamp(Width / 31f, 20f, 43f);
-        float middleY = Height * 0.5f;
-        float availableWidth = Math.Max(1f, Width - 2f * SidePadding);
-
+        center = Math.Clamp(center, 0, _planned.Count - 1);
         bool animate = active >= 0 && _transitionFrom >= 0 &&
                        Math.Abs(active - _transitionFrom) == 1;
-        // Ease in and ease out over a fraction of a second. Seeking more than
-        // one line intentionally snaps to the correct position.
         float progress = animate
             ? Math.Clamp((Environment.TickCount64 - _transitionTick) / 340f, 0f, 1f)
             : 1f;
         float eased = progress * progress * (3f - 2f * progress);
 
-        var layouts = new Dictionary<int, TextLayout>();
-        var positions = new Dictionary<int, float>();
-        try
+        // All lines have a stable, precomputed vertical position. Interpolate
+        // the viewport between those positions; never recalculate positions
+        // when a line becomes highlighted or its rendered font grows.
+        float anchor = _lineCenters[center];
+        if (animate)
+            anchor = _lineCenters[_transitionFrom] +
+                (_lineCenters[center] - _lineCenters[_transitionFrom]) * eased;
+
+        for (int index = 0; index < _planned.Count; index++)
         {
-            for (int index = first; index <= last; index++)
+            var layout = _planned[index];
+            float y = Height * 0.50f + _lineCenters[index] - anchor;
+            if (y + layout.TotalHeight / 2f < 0 ||
+                y - layout.TotalHeight / 2f > Height) continue;
+
+            float emphasis = index == active ? eased :
+                animate && index == _transitionFrom ? 1f - eased : 0f;
+            var color = Blend(Other, Highlight, emphasis);
+            var line = frame.Lines[index];
+            int? playedCharacters = null;
+            if (index == active && line.Words is { Count: > 0 } && progress >= 0.7f)
             {
-                float emphasis = index == active ? eased :
-                    animate && index == _transitionFrom ? 1f - eased : 0f;
-                float points = fontSize * (0.67f + 0.33f * emphasis);
-                layouts.Add(index, MakeLayout(g, frame.Lines[index].Text,
-                    points, emphasis >= 0.5f, availableWidth));
-            }
-
-            positions[center] = middleY;
-            for (int index = center + 1; index <= last; index++)
-                positions[index] = positions[index - 1] +
-                    Separation(layouts[index - 1], layouts[index]);
-            for (int index = center - 1; index >= first; index--)
-                positions[index] = positions[index + 1] -
-                    Separation(layouts[index + 1], layouts[index]);
-
-            float slide = 0;
-            if (animate && layouts.TryGetValue(_transitionFrom, out var previous))
-            {
-                slide = Math.Sign(active - _transitionFrom) *
-                    Separation(previous, layouts[center]) * (1f - eased);
-            }
-
-            for (int index = first; index <= last; index++)
-            {
-                var layout = layouts[index];
-                float y = positions[index] + slide;
-                // When wrapped lines need extra space, skip off-screen
-                // neighbors rather than allowing them to overlap the song.
-                if (y + layout.TotalHeight / 2 < 0 ||
-                    y - layout.TotalHeight / 2 > Height) continue;
-
-                float emphasis = index == active ? eased :
-                    animate && index == _transitionFrom ? 1f - eased : 0f;
-                var color = Blend(Other, Highlight, emphasis);
-                var line = frame.Lines[index];
-
-                int? playedCharacters = null;
-                if (index == active && line.Words is { Count: > 0 } && progress >= 0.7f)
+                int count = 0;
+                foreach (var word in line.Words)
                 {
-                    int count = 0;
-                    foreach (var word in line.Words)
-                    {
-                        if (frame.LyricPositionMs < word.AtMs) break;
-                        count += word.Text.Length;
-                    }
-                    playedCharacters = Math.Clamp(count, 0, line.Text.Length);
+                    if (frame.LyricPositionMs < word.AtMs) break;
+                    count += word.Text.Length;
                 }
+                playedCharacters = Math.Clamp(count, 0, line.Text.Length);
+            }
+            DrawLayout(g, layout, y, playedCharacters.HasValue ? Other : color,
+                playedCharacters, emphasis);
+        }
+    }
 
-                DrawLayout(g, layout, y,
-                    playedCharacters.HasValue ? Other : color,
-                    playedCharacters);
+    private void ClearPlan()
+    {
+        foreach (var layout in _planned) layout.Dispose();
+        _planned.Clear();
+        _plannedTexts.Clear();
+        _lineCenters = [];
+        _plannedWidth = -1;
+        _plannedPoints = -1;
+        _plannedDpi = -1;
+        _plannedSong = "";
+        _plannedArtist = "";
+    }
+
+    private void EnsurePlan(Graphics g, LyricFrame frame)
+    {
+        float availableWidth = Math.Max(1f, Width - 2f * SidePadding);
+        float preferredPoints = Math.Clamp(Width / 31f, 20f, 43f);
+        bool changed = _planned.Count != frame.Lines.Count ||
+            _plannedWidth != availableWidth ||
+            _plannedPoints != preferredPoints ||
+            _plannedDpi != g.DpiY ||
+            _plannedSong != frame.Song || _plannedArtist != frame.Artist;
+        if (!changed)
+        {
+            for (int i = 0; i < frame.Lines.Count; i++)
+            {
+                if (_plannedTexts[i] == frame.Lines[i].Text) continue;
+                changed = true;
+                break;
             }
         }
-        finally
+        if (!changed) return;
+
+        ClearPlan();
+        _plannedWidth = availableWidth;
+        _plannedPoints = preferredPoints;
+        _plannedDpi = g.DpiY;
+        _plannedSong = frame.Song;
+        _plannedArtist = frame.Artist;
+        _lineCenters = new float[frame.Lines.Count];
+
+        for (int i = 0; i < frame.Lines.Count; i++)
         {
-            foreach (var layout in layouts.Values) layout.Dispose();
+            var lyric = frame.Lines[i];
+            // Use the full highlighted size AND bold weight to decide the
+            // wrap now, not when the line is selected. A small safety margin
+            // prevents glyph overhang at the screen boundary.
+            _planned.Add(MakeLayout(g, lyric.Text, preferredPoints,
+                true, availableWidth * 0.96f));
+            _plannedTexts.Add(lyric.Text);
+            if (i > 0)
+                _lineCenters[i] = _lineCenters[i - 1] +
+                    Separation(_planned[i - 1], _planned[i]);
         }
+        _lastActive = int.MinValue;
+        _transitionFrom = -1;
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) ClearPlan();
+        base.Dispose(disposing);
     }
 
     private float Separation(TextLayout left, TextLayout right)
@@ -803,12 +840,19 @@ internal sealed class LyricsCanvas : Control
     {
         using var layout = MakeLayout(g, text, points, bold,
             Math.Max(1f, Width - 2f * SidePadding));
-        DrawLayout(g, layout, y, color, null);
+        DrawLayout(g, layout, y, color, null, 1f);
     }
 
     private void DrawLayout(Graphics g, TextLayout layout,
-        float centerY, Color color, int? playedCharacters)
+        float centerY, Color color, int? playedCharacters, float emphasis)
     {
+        // The row breaks and reserved height remain fixed. Only the actual
+        // font size/color animate, so upcoming lyrics are already wrapped.
+        float scale = 0.67f + 0.33f * Math.Clamp(emphasis, 0f, 1f);
+        using var displayFont = new Font("Segoe UI",
+            layout.Font.SizeInPoints * scale,
+            emphasis >= 0.5f ? FontStyle.Bold : FontStyle.Regular,
+            GraphicsUnit.Point);
         using var normalBrush = new SolidBrush(color);
         using var playedBrush = new SolidBrush(Highlight);
         using var format = new StringFormat(StringFormat.GenericTypographic)
@@ -825,7 +869,7 @@ internal sealed class LyricsCanvas : Control
             var row = layout.Rows[i];
             var rect = new RectangleF(SidePadding, top + i * layout.RowHeight,
                 width, layout.RowHeight);
-            g.DrawString(row.Text, layout.Font, normalBrush, rect, format);
+            g.DrawString(row.Text, displayFont, normalBrush, rect, format);
 
             if (!playedCharacters.HasValue) continue;
             int playedInRow = Math.Clamp(playedCharacters.Value - row.Start,
@@ -833,19 +877,19 @@ internal sealed class LyricsCanvas : Control
             if (playedInRow == 0) continue;
             if (playedInRow == row.Text.Length)
             {
-                g.DrawString(row.Text, layout.Font, playedBrush, rect, format);
+                g.DrawString(row.Text, displayFont, playedBrush, rect, format);
                 continue;
             }
 
             // The clip is relative to this wrapped row, not the original LRC
             // line, so multi-row enhanced lyrics highlight correctly.
-            float totalWidth = TextWidth(g, row.Text, layout.Font);
-            float playedWidth = TextWidth(g, row.Text[..playedInRow], layout.Font);
+            float totalWidth = TextWidth(g, row.Text, displayFont);
+            float playedWidth = TextWidth(g, row.Text[..playedInRow], displayFont);
             float left = rect.Left + (rect.Width - totalWidth) / 2f;
             var saved = g.Save();
             g.SetClip(new RectangleF(left - 1f, rect.Top,
                 playedWidth + 2f, rect.Height), CombineMode.Intersect);
-            g.DrawString(row.Text, layout.Font, playedBrush, rect, format);
+            g.DrawString(row.Text, displayFont, playedBrush, rect, format);
             g.Restore(saved);
         }
     }
