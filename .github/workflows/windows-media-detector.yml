@@ -1,0 +1,46 @@
+name: Build Melisma Windows Media Detector
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'tools/windows-media-detector/**'
+      - '.github/workflows/windows-media-detector.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-detector:
+    name: Build Windows x64 media detector
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore tools/windows-media-detector/MelismaMediaDetector.csproj -r win-x64
+
+      - name: Publish single-file test app
+        run: dotnet publish tools/windows-media-detector/MelismaMediaDetector.csproj --no-restore -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o windows-detector-dist
+
+      - name: Verify test executable
+        shell: pwsh
+        run: |
+          $exe = 'windows-detector-dist/MelismaMediaDetector.exe'
+          if (-not (Test-Path $exe)) { throw "Missing output executable $exe" }
+          Write-Host ('Built detector: {0:N0} bytes' -f (Get-Item $exe).Length)
+
+      - name: Upload Windows test executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: MelismaMediaDetector-win-x64
+          path: windows-detector-dist/MelismaMediaDetector.exe
+          retention-days: 30
