@@ -63,7 +63,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows Lyrics Preview v0.4.1";
+        Text = "Melisma Universal · Windows Lyrics Preview v0.4.2";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -83,7 +83,7 @@ internal sealed class LyricsController : Form
         grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
         grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 100));
         grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 57));
+        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
         Controls.Add(grid);
 
         var headings = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2, ColumnCount = 1 };
@@ -174,29 +174,19 @@ internal sealed class LyricsController : Form
         _preview = new LyricsCanvas(CurrentFrame, _artwork, controllerPreview: true) { Dock = DockStyle.Fill };
         grid.Controls.Add(_preview, 0, 3);
 
-        var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
-        footer.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
-        footer.RowStyles.Add(new RowStyle(SizeType.Percent, 50));
+        // Keep the footer quiet: it only changes when the selected song or
+        // the user's timing adjustment changes, never on the 55 ms paint tick.
         _infoLabel.Dock = DockStyle.Fill;
-        var source = Label(10, Color.FromArgb(146, 170, 191));
-        source.Dock = DockStyle.Fill;
-        source.Text = "Lyrics: —";
-        footer.Controls.Add(_infoLabel, 0, 0);
-        footer.Controls.Add(source, 0, 1);
-        grid.Controls.Add(footer, 0, 4);
+        _infoLabel.Text = "Lyrics delay: 0 ms";
+        grid.Controls.Add(_infoLabel, 0, 4);
 
         _screenTimer.Tick += (_, _) =>
         {
             ReadBridge();
             _preview.Invalidate();
             _projection?.Redraw();
-            _infoLabel.Text =
-                $"{Clock(_positionMs)} / {(_durationMs > 0 ? Clock(_durationMs) : "unknown")}   ·   " +
-                $"{(_bridgeFound ? "Direct Foobar bridge" : "Bridge not connected")}   ·   " +
-                $"{StateText()}   ·   Lyrics delay: {_offsetMs:+0;-0;0} ms " +
-                $"({(_offsetSaved ? "saved for this song" : "not saved")})";
-            source.Text = "Lyrics: " + _source;
-            hint.Text = _notice;
+            // Avoid invalidating labels with identical text every frame.
+            if (hint.Text != _notice) hint.Text = _notice;
         };
         _mediaTimer.Tick += async (_, _) => await PollMediaAsync();
         Shown += async (_, _) =>
@@ -293,6 +283,7 @@ internal sealed class LyricsController : Form
             _trackLabel.Text = title + "  —  " + artist;
             _offsetMs = _offsets.Read(title, artist, album);
             _offsetSaved = true;
+            UpdateDelayLabel();
             _lines.Clear();
             _source = "Looking up time-synced lyrics";
             _notice = "Fetching synced lyrics for " + title + "…";
@@ -366,8 +357,18 @@ internal sealed class LyricsController : Form
             if (!_offsetSaved)
                 _notice = "Timing changed, but Windows could not save it to your profile.";
         }
+        UpdateDelayLabel();
         _preview.Invalidate();
         _projection?.Redraw();
+    }
+
+    private void UpdateDelayLabel()
+    {
+        string text = $"Lyrics delay: {_offsetMs:+0;-0;0} ms" +
+            (_song.Length > 0
+                ? $" ({(_offsetSaved ? "saved for this song" : "not saved")})"
+                : "");
+        if (_infoLabel.Text != text) _infoLabel.Text = text;
     }
 
     private LyricFrame CurrentFrame()
@@ -487,7 +488,7 @@ internal sealed class LyricsController : Form
     private static HttpClient CreateHttpClient()
     {
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("MelismaWindowsLyricsPreview/0.4.1");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("MelismaWindowsLyricsPreview/0.4.2");
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         return client;
     }
