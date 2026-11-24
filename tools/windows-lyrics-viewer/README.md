@@ -1,47 +1,41 @@
-# Melisma Universal — Windows Lyrics Preview v0.3.2
+# Melisma Universal — Windows Lyrics Preview v0.4
 
-Windows 11 x64 · Foobar2000 · direct playback bridge
+Windows 11 x64 · Foobar2000 · read-only direct playback bridge
 
-## What's new in v0.3.2
+## What's new in v0.4 — album-art backgrounds
 
-- **Pre-planned line wrapping**: every line in the song is measured at its eventual highlighted size and split into its final one- or two-line layout before it scrolls into view.
-- **No sudden rewrap**: once a lyric is prepared, its word breaks remain unchanged when it becomes highlighted or the font grows.
-- **Stable scrolling**: all lyric positions are computed in advance from reserved text heights. A 340 ms eased movement scrolls the whole lyric column smoothly between them.
-- **Controller and TV agree**: each viewer independently measures its own width and resolution, so both get stable wrapping without touching playback timing.
-- **Respects resized windows and new tracks**: the display plan rebuilds for a new song, edited LRC content or changed view width, but not for highlight changes.
+- **Automatic artwork** from the current Foobar2000 Windows media session, when Foobar2000 makes a thumbnail available to Windows. Not every media session exposes a usable image; the app does **not** scrape the internet or read your MP3 files.
+- **TV and preview backgrounds**: the same art is shown behind the lyrics in the Windows controller preview and on the extended-monitor TV karaoke window.
+- **Gentle crossfading** when songs change or images are selected. Fade length is adjustable from **1 to 10 seconds**, default **4 seconds**.
+- **Artwork on/off** checkbox, with the setting and fade duration remembered between launches.
+- **Open cover image** lets you manually use a JPG, PNG, WebP or BMP (up to 8 MB) for the current display when automatic artwork is unavailable. Manual artwork does not change your MP3 or sync to the cloud, and resets at the next song.
+- **Readability first**: cover images fill the window behind a dark overlay; the v0.3.2 pre-wrapped lyrics and highlighting remain foreground content. Without artwork, the existing dark-gradient background remains.
 
-## Retained from v0.3.1
+## Retained from v0.3.2
 
-- **Complete long lyrics without ellipses.** Oversized lines wrap onto two centered rows, including on the TV, using word boundaries when available. Font size adjusts if needed.
-- **No overlapping lyric rows.** Neighboring lines automatically move farther apart when a wrapped line needs extra height.
-- **Gentler transitions.** The line change uses an ease-in/ease-out movement over 340 ms. Foobar2000 timing and seek handling are unchanged.
-- **Enhanced LRC still works with wrapping.** Word highlighting follows the correct timestamped characters across both visual rows.
+- Complete lyric wrapping is calculated at the final highlighted font size ahead of time so incoming text never snaps from one line into two at the last moment.
+- Consistent lyric spacing and smooth 340 ms vertical progression.
+- LRCLIB synced lyrics and manual LRC files, with optional enhanced LRC word timestamps when supplied.
+- Read-only Foobar2000 playback position, pause, seeking and second-screen fullscreen karaoke.
+- Saved **per-song timing corrections**, including the previously verified +2000 ms example.
 
-## Retained from v0.3
+## First test
 
-- **Per-song timing memory.** Adjust the lyrics with ±100 ms buttons; the offset is saved automatically and restored when you return to the same song. Reset also clears that song's saved correction.
-- **Enhanced LRC word timing.** If an LRC file contains `<mm:ss.xx>` word markers, completed words are progressively highlighted. Ordinary timestamped lyrics continue to highlight complete lines (no fabricated word timing).
-- **Smoother line transitions.** Adjacent lyric lines glide into position during normal playback. Large seeks jump directly to the correct line.
-- **Longer lyrics fit better.** The viewer and TV display shrink oversized text to fit the available width before truncating it.
-
-These changes apply to both the controller preview and the existing full-screen second-monitor display. The Foobar2000 bridge and Stem Separator are unchanged.
-
-## Install and test
-
-1. Leave your existing working Foobar2000 x64 Bridge component installed.
-2. Download the `Melisma-Windows-Lyrics-Preview-v0.3.2-x64` ZIP from the GitHub Actions build for this branch and extract it into a **new** folder (keep v0.3 and v0.2 as backups).
-3. Launch `MelismaLyricsViewer.exe`. Play a song in Foobar2000 and verify that lyrics follow it.
-4. Verify your saved per-song +2000 ms correction is restored automatically, without re-entering it.
-5. Pause, resume, and seek; check the entire column scrolls smoothly and lyric rows do not suddenly rearrange.
-6. For dual-monitor testing, use **Show on second monitor** with Windows display mode set to **Extend**.
-7. For word highlighting, open an **enhanced** .lrc file that includes inline `<mm:ss.xx>` timestamps. Standard LRCLIB timed lyrics generally provide only line timestamps.
+1. Keep your known-good v0.3.2 extracted folder and the existing Foobar2000 x64 Bridge component.
+2. Download **Melisma-Windows-Lyrics-Preview-v0.4-x64** from the GitHub Actions artifact for this branch and extract to a **different folder**.
+3. Launch `MelismaLyricsViewer.exe` and start a track in Foobar2000. With **Album art background** selected, check whether the cover appears behind the lyrics.
+4. Choose a 1-second fade, then a 6-second fade, and change songs to compare. If no automatic art appears, use **Open cover image** to test the rendering and transitions with a local image.
+5. Test **Show on second monitor** and verify the full-screen TV display has the same darkened background and still displays pre-wrapped lyrics.
+6. Uncheck **Album art background** to restore the original dark-gradient-only view; close and reopen the app to confirm on/off and fade length persist.
+7. Verify timing adjustment, track changes, pauses, seeks and lyric layout are unchanged.
 
 ## Notes
 
-- Timing corrections are stored locally in `%LOCALAPPDATA%\MelismaUniversal\WindowsLyricsViewer\timing-offsets.json`.
-- The maximum correction is ±20,000 ms. Settings never modify audio files, MP3 tags, Foobar2000 settings, or the bridge.
-- Playback metadata and direct bridge timing are read-only. Automatic LRCLIB searches send track title, artist, optional album and duration, **not** audio.
-- No Firebase Cloud Sync, album-art backgrounds or stem controls are included yet.
-- Windows 11 64-bit; self-contained .NET 8 build. The app can be unsigned during testing; use only artifacts from this repository.
+- Art and fade preferences: `%LOCALAPPDATA%\MelismaUniversal\WindowsLyricsViewer\album-art.json`.
+- Saved timing corrections: `%LOCALAPPDATA%\MelismaUniversal\WindowsLyricsViewer\timing-offsets.json`.
+- Artwork from Windows comes from the existing media-session **Thumbnail** property; it is not fetched from LRCLIB or external artwork sites. If foobar2000 does not publish a thumbnail, automatic artwork cannot be displayed until we add a different source.
+- Manual images are in memory only. We do not modify MP3 tags, change Foobar2000 playback controls or touch the Stem Separator.
+- Album art is a local-only display feature. Firebase Cloud Sync and Stem Separator controls are not included yet.
+- Windows 11 x64, .NET 8 self-contained. This is a test build, not a validated release.
 
-Source: `tools/windows-lyrics-viewer/` and `.github/workflows/windows-lyrics-viewer.yml`.
+Source: `tools/windows-lyrics-viewer/`.
