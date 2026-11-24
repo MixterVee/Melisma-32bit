@@ -1,8 +1,15 @@
-# Melisma Universal — Windows Lyrics Preview v0.3
+# Melisma Universal — Windows Lyrics Preview v0.3.1
 
 Windows 11 x64 · Foobar2000 · direct playback bridge
 
-## What's new in v0.3
+## What's new in v0.3.1
+
+- **Complete long lyrics without ellipses.** Oversized lines wrap onto two centered rows, including on the TV, using word boundaries when available. Font size adjusts if needed.
+- **No overlapping lyric rows.** Neighboring lines automatically move farther apart when a wrapped line needs extra height.
+- **Gentler transitions.** The line change uses an ease-in/ease-out movement over 340 ms. Foobar2000 timing and seek handling are unchanged.
+- **Enhanced LRC still works with wrapping.** Word highlighting follows the correct timestamped characters across both visual rows.
+
+## Retained from v0.3
 
 - **Per-song timing memory.** Adjust the lyrics with ±100 ms buttons; the offset is saved automatically and restored when you return to the same song. Reset also clears that song's saved correction.
 - **Enhanced LRC word timing.** If an LRC file contains `<mm:ss.xx>` word markers, completed words are progressively highlighted. Ordinary timestamped lyrics continue to highlight complete lines (no fabricated word timing).
@@ -14,10 +21,10 @@ These changes apply to both the controller preview and the existing full-screen 
 ## Install and test
 
 1. Leave your existing working Foobar2000 x64 Bridge component installed.
-2. Download the `Melisma-Windows-Lyrics-Preview-v0.3-x64` ZIP from the GitHub Actions build for this branch and extract it into a **new** folder (keep v0.2 as a backup).
+2. Download the `Melisma-Windows-Lyrics-Preview-v0.3.1-x64` ZIP from the GitHub Actions build for this branch and extract it into a **new** folder (keep v0.3 and v0.2 as backups).
 3. Launch `MelismaLyricsViewer.exe`. Play a song in Foobar2000 and verify that lyrics follow it.
-4. Adjust timing, close the viewer, reopen it and replay the same song. The saved offset should reappear.
-5. Switch to a different song; its correction should be independent. Use **Reset** to clear an offset for the current song.
+4. Verify your saved per-song +2000 ms correction is restored automatically, without re-entering it.
+5. Pause, resume, and seek; check smooth transitions on regular lyric changes.
 6. For dual-monitor testing, use **Show on second monitor** with Windows display mode set to **Extend**.
 7. For word highlighting, open an **enhanced** .lrc file that includes inline `<mm:ss.xx>` timestamps. Standard LRCLIB timed lyrics generally provide only line timestamps.
 
