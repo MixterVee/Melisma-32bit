@@ -7,6 +7,8 @@ using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Windows.Media.Control;
+using Windows.Storage.Streams;
+using System.Drawing.Imaging;
 
 namespace MelismaLyricsViewer;
 
@@ -30,6 +32,7 @@ internal sealed class LyricsController : Form
 {
     private readonly NativeTimelineReader _bridge = new();
     private readonly SongOffsetStore _offsets = new();
+    private readonly AlbumArtworkState _artwork = new();
     private readonly System.Windows.Forms.Timer _screenTimer = new() { Interval = 55 };
     private readonly System.Windows.Forms.Timer _mediaTimer = new() { Interval = 1200 };
     private readonly Label _trackLabel = Label(18, Color.White, true);
@@ -55,11 +58,12 @@ internal sealed class LyricsController : Form
     private bool _bridgeFound;
     private string _loadedFor = "";
     private CancellationTokenSource? _searchCancellation;
+    private int _artworkRequestId;
     private static readonly HttpClient Client = CreateHttpClient();
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows Lyrics Preview v0.3.2";
+        Text = "Melisma Universal · Windows Lyrics Preview v0.4";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -77,7 +81,7 @@ internal sealed class LyricsController : Form
         };
         grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 80));
         grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
-        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
+        grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 100));
         grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 57));
         Controls.Add(grid);
@@ -98,6 +102,9 @@ internal sealed class LyricsController : Form
         hint.Text = _notice;
         grid.Controls.Add(hint, 0, 1);
 
+        var toolbarArea = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
+        toolbarArea.RowStyles.Add(new RowStyle(SizeType.Absolute, 51));
+        toolbarArea.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         var toolbar = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight,
@@ -118,9 +125,53 @@ internal sealed class LyricsController : Form
 
         _secondScreenButton.Click += ToggleSecondScreen;
         toolbar.Controls.Add(_secondScreenButton);
-        grid.Controls.Add(toolbar, 0, 2);
+        toolbarArea.Controls.Add(toolbar, 0, 0);
 
-        _preview = new LyricsCanvas(CurrentFrame) { Dock = DockStyle.Fill };
+        var artControls = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill, WrapContents = false, AutoScroll = true,
+            FlowDirection = FlowDirection.LeftToRight
+        };
+        var artEnabled = new CheckBox
+        {
+            Text = "Album art background", AutoSize = true,
+            Checked = _artwork.Enabled, ForeColor = Color.White,
+            Margin = new Padding(0, 11, 12, 0)
+        };
+        artEnabled.CheckedChanged += (_, _) =>
+        {
+            _artwork.Enabled = artEnabled.Checked;
+            _artwork.SaveOptions();
+            _preview.Invalidate();
+            _projection?.Redraw();
+        };
+        artControls.Controls.Add(artEnabled);
+
+        var fadeLabel = Label(9.5f, Color.FromArgb(175, 188, 204));
+        fadeLabel.Text = "Fade (seconds):";
+        fadeLabel.AutoSize = true;
+        fadeLabel.Margin = new Padding(0, 11, 7, 0);
+        artControls.Controls.Add(fadeLabel);
+        var fadeSeconds = new NumericUpDown
+        {
+            Minimum = 1, Maximum = 10, Value = _artwork.FadeSeconds,
+            Width = 52, Height = 32, Margin = new Padding(0, 5, 12, 0),
+            Font = new Font("Segoe UI", 10)
+        };
+        fadeSeconds.ValueChanged += (_, _) =>
+        {
+            _artwork.FadeSeconds = (int)fadeSeconds.Value;
+            _artwork.SaveOptions();
+        };
+        artControls.Controls.Add(fadeSeconds);
+
+        var openCover = Button("Open cover image", 152);
+        openCover.Click += OpenCoverImage;
+        artControls.Controls.Add(openCover);
+        toolbarArea.Controls.Add(artControls, 0, 1);
+        grid.Controls.Add(toolbarArea, 0, 2);
+
+        _preview = new LyricsCanvas(CurrentFrame, _artwork) { Dock = DockStyle.Fill };
         grid.Controls.Add(_preview, 0, 3);
 
         var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
@@ -167,6 +218,7 @@ internal sealed class LyricsController : Form
             _searchCancellation?.Cancel();
             _searchCancellation?.Dispose();
             _projection?.Close();
+            _artwork.Dispose();
         };
     }
 
@@ -234,6 +286,10 @@ internal sealed class LyricsController : Form
             if (title == _song && artist == _artist && album == _album) return;
             _song = title; _artist = artist; _album = album;
             _loadedFor = title + "|" + artist + "|" + album;
+            // Invalidate any delayed artwork read from the preceding song.
+            int artworkRequest = ++_artworkRequestId;
+            _artwork.Replace(null);
+            _ = LoadArtworkAsync(props.Thumbnail, _loadedFor, artworkRequest);
             _trackLabel.Text = title + "  —  " + artist;
             _offsetMs = _offsets.Read(title, artist, album);
             _offsetSaved = true;
@@ -247,6 +303,58 @@ internal sealed class LyricsController : Form
         }
         catch (Exception ex) { _notice = "Media metadata: " + ex.Message; }
         finally { _mediaBusy = false; }
+    }
+
+    private async Task LoadArtworkAsync(IRandomAccessStreamReference? thumbnail,
+        string trackKey, int requestId)
+    {
+        if (thumbnail == null) return;
+        try
+        {
+            using var random = await thumbnail.OpenReadAsync();
+            if (random.Size is 0 or > 8388608) return;
+            using var reader = new DataReader(random);
+            uint byteCount = (uint)random.Size;
+            uint loaded = await reader.LoadAsync(byteCount);
+            if (loaded != byteCount) return;
+            var imageBytes = new byte[byteCount];
+            reader.ReadBytes(imageBytes);
+            if (IsDisposed || requestId != _artworkRequestId ||
+                trackKey != _loadedFor) return;
+            _artwork.Replace(imageBytes);
+            _preview.Invalidate();
+            _projection?.Redraw();
+        }
+        catch (Exception)
+        {
+            // Some playback sessions expose metadata but no usable art.
+            // Keep the dark gradient and working lyric timeline.
+        }
+    }
+
+    private void OpenCoverImage(object? sender, EventArgs e)
+    {
+        using var dialog = new OpenFileDialog
+        {
+            Filter = "Cover images (*.jpg;*.jpeg;*.png;*.webp;*.bmp)|*.jpg;*.jpeg;*.png;*.webp;*.bmp|All files (*.*)|*.*",
+            Title = "Choose a cover image for the current display"
+        };
+        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        try
+        {
+            var imageBytes = File.ReadAllBytes(dialog.FileName);
+            if (imageBytes.Length > 8388608)
+                throw new InvalidOperationException("Maximum cover size is 8 MB.");
+            ++_artworkRequestId;
+            _artwork.Replace(imageBytes);
+            _preview.Invalidate();
+            _projection?.Redraw();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, "Cannot open cover image: " + ex.Message,
+                "Melisma", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
     }
 
     private void ChangeOffset(int delta)
@@ -290,7 +398,7 @@ internal sealed class LyricsController : Form
                 "Melisma — second display", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
-        _projection = new KaraokeDisplay(screen, CurrentFrame);
+        _projection = new KaraokeDisplay(screen, CurrentFrame, _artwork);
         _projection.FormClosed += (_, _) =>
         {
             _projection = null;
@@ -379,7 +487,7 @@ internal sealed class LyricsController : Form
     private static HttpClient CreateHttpClient()
     {
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("MelismaWindowsLyricsPreview/0.3.2");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("MelismaWindowsLyricsPreview/0.4.0");
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         return client;
     }
@@ -564,9 +672,87 @@ internal static class LrcParser
     }
 }
 
+internal sealed record AlbumArtOptions(bool Enabled, int FadeSeconds);
+
+internal sealed class AlbumArtworkState : IDisposable
+{
+    private readonly string _path = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "MelismaUniversal", "WindowsLyricsViewer", "album-art.json");
+
+    private Bitmap? _previous;
+    private Bitmap? _current;
+    private long _transitionTick = Environment.TickCount64;
+    public bool Enabled { get; set; } = true;
+    public int FadeSeconds { get; set; } = 4;
+    public Image? Previous => _previous;
+    public Image? Current => _current;
+    public float Progress => Math.Clamp(
+        (Environment.TickCount64 - _transitionTick) / (FadeSeconds * 1000f),
+        0f, 1f);
+
+    public AlbumArtworkState()
+    {
+        try
+        {
+            if (!File.Exists(_path)) return;
+            var saved = JsonSerializer.Deserialize<AlbumArtOptions>(File.ReadAllText(_path));
+            if (saved == null) return;
+            Enabled = saved.Enabled;
+            FadeSeconds = Math.Clamp(saved.FadeSeconds, 1, 10);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        {
+            // Optional display settings should never prevent lyric playback.
+        }
+    }
+
+    public void SaveOptions()
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
+            string temp = _path + ".tmp";
+            File.WriteAllText(temp, JsonSerializer.Serialize(
+                new AlbumArtOptions(Enabled, FadeSeconds)));
+            File.Move(temp, _path, true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Settings can be adjusted for this session even on read-only profiles.
+        }
+    }
+
+    public void Replace(byte[]? imageBytes)
+    {
+        Bitmap? next = null;
+        if (imageBytes is { Length: > 0 })
+        {
+            using var memory = new MemoryStream(imageBytes);
+            using var decoded = Image.FromStream(memory, true, true);
+            // Detach bitmap from stream and keep only decoded pixels.
+            next = new Bitmap(decoded);
+        }
+
+        _previous?.Dispose();
+        _previous = _current;
+        _current = next;
+        _transitionTick = Environment.TickCount64;
+    }
+
+    public void Dispose()
+    {
+        _previous?.Dispose();
+        _current?.Dispose();
+        _previous = null;
+        _current = null;
+    }
+}
+
 internal sealed class LyricsCanvas : Control
 {
     private readonly Func<LyricFrame> _frame;
+    private readonly AlbumArtworkState _artwork;
     private static readonly Color Highlight = Color.FromArgb(113, 236, 227);
     private static readonly Color Other = Color.FromArgb(142, 157, 181);
     private const float SidePadding = 26f;
@@ -593,9 +779,10 @@ internal sealed class LyricsCanvas : Control
         public void Dispose() => Font.Dispose();
     }
 
-    public LyricsCanvas(Func<LyricFrame> frame)
+    public LyricsCanvas(Func<LyricFrame> frame, AlbumArtworkState artwork)
     {
         _frame = frame;
+        _artwork = artwork;
         DoubleBuffered = true;
         BackColor = Color.FromArgb(17, 23, 39);
         Dock = DockStyle.Fill;
@@ -612,6 +799,7 @@ internal sealed class LyricsCanvas : Control
             Color.FromArgb(14, 32, 47), Color.FromArgb(37, 21, 55),
             LinearGradientMode.ForwardDiagonal);
         g.FillRectangle(background, ClientRectangle);
+        DrawArtworkBackground(g);
         var frame = _frame();
 
         if (frame.Lines.Count == 0)
@@ -676,6 +864,43 @@ internal sealed class LyricsCanvas : Control
             DrawLayout(g, layout, y, playedCharacters.HasValue ? Other : color,
                 playedCharacters, emphasis);
         }
+    }
+
+    private void DrawArtworkBackground(Graphics g)
+    {
+        if (!_artwork.Enabled) return;
+        float fraction = _artwork.Progress;
+        if (_artwork.Previous != null && fraction < 1f)
+            DrawCover(g, _artwork.Previous, 0.72f * (1f - fraction));
+        if (_artwork.Current != null && fraction > 0f)
+            DrawCover(g, _artwork.Current, 0.72f * fraction);
+
+        // Dark scrim keeps both the highlighted and upcoming lyrics legible,
+        // regardless of bright or busy cover art.
+        if (_artwork.Previous != null || _artwork.Current != null)
+        {
+            using var scrim = new SolidBrush(Color.FromArgb(143, 8, 12, 25));
+            g.FillRectangle(scrim, ClientRectangle);
+        }
+    }
+
+    private void DrawCover(Graphics g, Image image, float opacity)
+    {
+        if (Width <= 0 || Height <= 0 || opacity <= 0f) return;
+        float sourceRatio = image.Width / (float)image.Height;
+        float viewRatio = Width / (float)Height;
+        float cropWidth = image.Width;
+        float cropHeight = image.Height;
+        if (sourceRatio > viewRatio) cropWidth = image.Height * viewRatio;
+        else cropHeight = image.Width / viewRatio;
+
+        float cropX = (image.Width - cropWidth) * 0.5f;
+        float cropY = (image.Height - cropHeight) * 0.5f;
+        using var attributes = new ImageAttributes();
+        var matrix = new ColorMatrix { Matrix33 = Math.Clamp(opacity, 0f, 1f) };
+        attributes.SetColorMatrix(matrix, ColorMatrixFlag.Default, ColorAdjustType.Bitmap);
+        g.DrawImage(image, ClientRectangle,
+            cropX, cropY, cropWidth, cropHeight, GraphicsUnit.Pixel, attributes);
     }
 
     private void ClearPlan()
@@ -900,7 +1125,7 @@ internal sealed class KaraokeDisplay : Form
     private readonly LyricsCanvas _canvas;
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 55 };
 
-    public KaraokeDisplay(Screen screen, Func<LyricFrame> frame)
+    public KaraokeDisplay(Screen screen, Func<LyricFrame> frame, AlbumArtworkState artwork)
     {
         Text = "Melisma Karaoke · TV display";
         FormBorderStyle = FormBorderStyle.None;
@@ -908,7 +1133,7 @@ internal sealed class KaraokeDisplay : Form
         Bounds = screen.Bounds;
         BackColor = Color.Black;
         KeyPreview = true;
-        _canvas = new LyricsCanvas(frame) { Dock = DockStyle.Fill };
+        _canvas = new LyricsCanvas(frame, artwork) { Dock = DockStyle.Fill };
         Controls.Add(_canvas);
         KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) Close(); };
         _timer.Tick += (_, _) => _canvas.Invalidate();
