@@ -82,7 +82,7 @@ public:
 };
 track_events* g_trackEvents = nullptr;
 
-class bridge_lifecycle final : public initquit {
+class bridge_lifecycle : public initquit {
 public:
     void on_init() override {
         g_mapping = CreateFileMappingW(
