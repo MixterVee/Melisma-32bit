@@ -20,14 +20,16 @@ internal static class Program
     }
 }
 
-internal sealed record LrcLine(long AtMs, string Text);
+internal sealed record LrcWord(long AtMs, string Text);
+internal sealed record LrcLine(long AtMs, string Text, IReadOnlyList<LrcWord>? Words = null);
 internal sealed record LyricFrame(
     IReadOnlyList<LrcLine> Lines, int ActiveIndex,
-    string Song, string Artist, string Message);
+    string Song, string Artist, string Message, long LyricPositionMs);
 
 internal sealed class LyricsController : Form
 {
     private readonly NativeTimelineReader _bridge = new();
+    private readonly SongOffsetStore _offsets = new();
     private readonly System.Windows.Forms.Timer _screenTimer = new() { Interval = 55 };
     private readonly System.Windows.Forms.Timer _mediaTimer = new() { Interval = 1200 };
     private readonly Label _trackLabel = Label(18, Color.White, true);
@@ -48,6 +50,7 @@ internal sealed class LyricsController : Form
     private long _positionMs;
     private long _durationMs;
     private int _offsetMs;
+    private bool _offsetSaved = true;
     private int _playerState;
     private bool _bridgeFound;
     private string _loadedFor = "";
@@ -56,7 +59,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows Lyrics Preview v0.2";
+        Text = "Melisma Universal · Windows Lyrics Preview v0.3";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -139,7 +142,8 @@ internal sealed class LyricsController : Form
             _infoLabel.Text =
                 $"{Clock(_positionMs)} / {(_durationMs > 0 ? Clock(_durationMs) : "unknown")}   ·   " +
                 $"{(_bridgeFound ? "Direct Foobar bridge" : "Bridge not connected")}   ·   " +
-                $"{StateText()}   ·   Lyrics delay: {_offsetMs:+0;-0;0} ms";
+                $"{StateText()}   ·   Lyrics delay: {_offsetMs:+0;-0;0} ms " +
+                $"({(_offsetSaved ? "saved for this song" : "not saved")})";
             source.Text = "Lyrics: " + _source;
             hint.Text = _notice;
         };
@@ -231,7 +235,8 @@ internal sealed class LyricsController : Form
             _song = title; _artist = artist; _album = album;
             _loadedFor = title + "|" + artist + "|" + album;
             _trackLabel.Text = title + "  —  " + artist;
-            _offsetMs = 0;
+            _offsetMs = _offsets.Read(title, artist, album);
+            _offsetSaved = true;
             _lines.Clear();
             _source = "Looking up time-synced lyrics";
             _notice = "Fetching synced lyrics for " + title + "…";
@@ -247,6 +252,12 @@ internal sealed class LyricsController : Form
     private void ChangeOffset(int delta)
     {
         _offsetMs = Math.Clamp(_offsetMs + delta, -20000, 20000);
+        if (_song.Length > 0)
+        {
+            _offsetSaved = _offsets.TryWrite(_song, _artist, _album, _offsetMs);
+            if (!_offsetSaved)
+                _notice = "Timing changed, but Windows could not save it to your profile.";
+        }
         _preview.Invalidate();
         _projection?.Redraw();
     }
@@ -262,7 +273,7 @@ internal sealed class LyricsController : Form
         }
         return new LyricFrame(_lines, current,
             _song.Length > 0 ? _song : "Melisma Karaoke",
-            _artist, _notice);
+            _artist, _notice, lyricMs);
     }
 
     private void ToggleSecondScreen(object? sender, EventArgs e)
@@ -368,7 +379,7 @@ internal sealed class LyricsController : Form
     private static HttpClient CreateHttpClient()
     {
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("MelismaWindowsLyricsPreview/0.2.0");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("MelismaWindowsLyricsPreview/0.3.0");
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         return client;
     }
@@ -439,11 +450,76 @@ internal sealed class LyricsController : Form
     }
 }
 
+internal sealed class SongOffsetStore
+{
+    // Timing is local to this Windows profile; no login or Firebase needed.
+    private readonly string _path = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "MelismaUniversal", "WindowsLyricsViewer", "timing-offsets.json");
+    private readonly Dictionary<string, int> _values = new(StringComparer.Ordinal);
+
+    public SongOffsetStore()
+    {
+        try
+        {
+            if (!File.Exists(_path)) return;
+            var saved = JsonSerializer.Deserialize<Dictionary<string, int>>(File.ReadAllText(_path));
+            if (saved == null) return;
+            foreach (var entry in saved)
+                _values[entry.Key] = Math.Clamp(entry.Value, -20000, 20000);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+        {
+            // A corrupt or inaccessible settings file must not prevent playback.
+        }
+    }
+
+    private static string Key(string title, string artist, string album) =>
+        string.Join("\u001f", title.Trim().ToUpperInvariant(),
+            artist.Trim().ToUpperInvariant(), album.Trim().ToUpperInvariant());
+
+    public int Read(string title, string artist, string album) =>
+        _values.TryGetValue(Key(title, artist, album), out var value) ? value : 0;
+
+    public bool TryWrite(string title, string artist, string album, int value)
+    {
+        var key = Key(title, artist, album);
+        if (value == 0) _values.Remove(key);
+        else _values[key] = Math.Clamp(value, -20000, 20000);
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
+            var temp = _path + ".tmp";
+            File.WriteAllText(temp, JsonSerializer.Serialize(_values));
+            File.Move(temp, _path, true);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+}
+
 internal static class LrcParser
 {
     private static readonly Regex Timestamp =
         new(@"\[(?<m>\d{1,3}):(?<s>\d{1,2})(?:\.(?<f>\d{1,3}))?\]",
             RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    // Enhanced LRC permits optional word timestamps, e.g. <00:12.34>Hello <00:12.78>world.
+    private static readonly Regex WordTimestamp =
+        new(@"<(?<m>\d{1,3}):(?<s>\d{1,2})(?:\.(?<f>\d{1,3}))?>",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static long Ms(Match match)
+    {
+        int minute = int.Parse(match.Groups["m"].Value, CultureInfo.InvariantCulture);
+        int second = int.Parse(match.Groups["s"].Value, CultureInfo.InvariantCulture);
+        var frac = match.Groups["f"].Value;
+        int ms = frac.Length == 0 ? 0 :
+            int.Parse(frac.PadRight(3, '0'), CultureInfo.InvariantCulture);
+        return (minute * 60L + second) * 1000 + ms;
+    }
 
     public static List<LrcLine> Parse(string value)
     {
@@ -452,17 +528,36 @@ internal static class LrcParser
         {
             var matches = Timestamp.Matches(line);
             if (matches.Count == 0) continue;
-            var text = Timestamp.Replace(line, "").Trim();
+
+            var rawText = Timestamp.Replace(line, "").Trim();
+            var wordMatches = WordTimestamp.Matches(rawText);
+            string text = WordTimestamp.Replace(rawText, "").Trim();
             if (text.Length == 0) text = "♪";
-            foreach (Match m in matches)
+            List<LrcWord>? words = null;
+
+            if (wordMatches.Count > 0)
             {
-                int minute = int.Parse(m.Groups["m"].Value, CultureInfo.InvariantCulture);
-                int second = int.Parse(m.Groups["s"].Value, CultureInfo.InvariantCulture);
-                var frac = m.Groups["f"].Value;
-                int ms = frac.Length == 0 ? 0 :
-                    int.Parse(frac.PadRight(3, '0'), CultureInfo.InvariantCulture);
-                entries.Add(new LrcLine((minute * 60L + second) * 1000 + ms, text));
+                var parsedWords = new List<LrcWord>();
+                for (int i = 0; i < wordMatches.Count; i++)
+                {
+                    var match = wordMatches[i];
+                    int start = match.Index + match.Length;
+                    int finish = i + 1 < wordMatches.Count
+                        ? wordMatches[i + 1].Index : rawText.Length;
+                    var part = rawText.Substring(start, finish - start);
+                    if (i == 0) part = part.TrimStart();
+                    if (i == wordMatches.Count - 1) part = part.TrimEnd();
+                    if (part.Length > 0)
+                        parsedWords.Add(new LrcWord(Ms(match), part));
+                }
+                // If leading un-timed content exists, retain plain line mode.
+                if (parsedWords.Count > 0 &&
+                    string.Concat(parsedWords.Select(w => w.Text)) == text)
+                    words = parsedWords;
             }
+
+            foreach (Match m in matches)
+                entries.Add(new LrcLine(Ms(m), text, words));
         }
         entries.Sort((a, b) => a.AtMs.CompareTo(b.AtMs));
         return entries;
@@ -474,6 +569,9 @@ internal sealed class LyricsCanvas : Control
     private readonly Func<LyricFrame> _frame;
     private static readonly Color Highlight = Color.FromArgb(113, 236, 227);
     private static readonly Color Other = Color.FromArgb(142, 157, 181);
+    private int _lastActive = int.MinValue;
+    private int _transitionFrom = -1;
+    private long _transitionTick;
 
     public LyricsCanvas(Func<LyricFrame> frame)
     {
@@ -491,52 +589,150 @@ internal sealed class LyricsCanvas : Control
         g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
 
         using var background = new LinearGradientBrush(ClientRectangle,
-            Color.FromArgb(14, 32, 47), Color.FromArgb(37, 21, 55), LinearGradientMode.ForwardDiagonal);
+            Color.FromArgb(14, 32, 47), Color.FromArgb(37, 21, 55),
+            LinearGradientMode.ForwardDiagonal);
         g.FillRectangle(background, ClientRectangle);
         var frame = _frame();
 
         if (frame.Lines.Count == 0)
         {
+            _lastActive = int.MinValue;
             Draw(g, "♪", Height * 0.33f, 76, Highlight, true, 120);
             Draw(g, "Waiting for synchronized lyrics", Height * 0.55f, 22, Color.White, true, 76);
             Draw(g, frame.Message, Height * 0.67f, 12, Other, false, 65);
             return;
         }
 
-        // Show surrounding lines without ever scrolling the WinForms controls.
-        // The highlighted line changes using the Foobar2000 shared-memory time.
         int active = frame.ActiveIndex;
+        if (active != _lastActive)
+        {
+            _transitionFrom = _lastActive;
+            _lastActive = active;
+            _transitionTick = Environment.TickCount64;
+        }
+
         int center = active < 0 ? 0 : active;
         float fontSize = Math.Clamp(Width / 31f, 20, 43);
         float centerY = Height * 0.50f;
         float step = Math.Clamp(Height / 6.5f, 52, 105);
 
+        // Animate adjacent line changes; jump directly on seeks or track changes.
+        bool animate = active >= 0 && _transitionFrom >= 0 &&
+                       Math.Abs(active - _transitionFrom) == 1;
+        float progress = animate
+            ? Math.Clamp((Environment.TickCount64 - _transitionTick) / 220f, 0f, 1f)
+            : 1f;
+        float eased = 1f - (1f - progress) * (1f - progress) * (1f - progress);
+        float slide = animate ? Math.Sign(active - _transitionFrom) * step * (1f - eased) : 0f;
+
         for (int i = -3; i <= 3; i++)
         {
             int index = center + i;
             if (index < 0 || index >= frame.Lines.Count) continue;
-            bool selected = index == active;
-            Draw(g, frame.Lines[index].Text, centerY + i * step,
-                selected ? fontSize : fontSize * 0.67f,
-                selected ? Highlight : Other, selected, step * 1.10f);
+
+            float emphasis = index == active ? (animate ? eased : 1f)
+                : index == _transitionFrom && animate ? 1f - eased : 0f;
+            float size = fontSize * (0.67f + 0.33f * emphasis);
+            float lineY = centerY + i * step + slide;
+            var tint = Blend(Other, Highlight, emphasis);
+            var line = frame.Lines[index];
+
+            if (index == active && line.Words is { Count: > 0 } && progress >= 0.7f)
+                DrawEnhanced(g, line, frame.LyricPositionMs, lineY, size, step * 1.10f);
+            else
+                Draw(g, line.Text, lineY, size, tint, emphasis >= 0.5f, step * 1.10f);
+        }
+    }
+
+    private static Color Blend(Color left, Color right, float amount)
+    {
+        amount = Math.Clamp(amount, 0f, 1f);
+        return Color.FromArgb(
+            (int)(left.R + (right.R - left.R) * amount),
+            (int)(left.G + (right.G - left.G) * amount),
+            (int)(left.B + (right.B - left.B) * amount));
+    }
+
+    private Font FitFont(Graphics g, string text, float points, bool bold, float availableWidth)
+    {
+        var style = bold ? FontStyle.Bold : FontStyle.Regular;
+        float size = Math.Max(12f, points);
+        using var measure = new StringFormat(StringFormat.GenericTypographic)
+        {
+            FormatFlags = StringFormatFlags.NoWrap
+        };
+        while (true)
+        {
+            var font = new Font("Segoe UI", size, style, GraphicsUnit.Point);
+            if (size <= 12.01f ||
+                g.MeasureString(text, font, 10000, measure).Width <= availableWidth)
+                return font;
+            font.Dispose();
+            size = Math.Max(12f, size * 0.88f);
         }
     }
 
     private void Draw(Graphics g, string text, float centerY,
         float points, Color color, bool bold, float boxHeight)
     {
-        using var font = new Font("Segoe UI", points,
-            bold ? FontStyle.Bold : FontStyle.Regular, GraphicsUnit.Point);
+        var bounds = new RectangleF(26, centerY - boxHeight / 2,
+            Math.Max(1, Width - 52), boxHeight);
+        using var font = FitFont(g, text, points, bold, bounds.Width);
         using var brush = new SolidBrush(color);
         using var format = new StringFormat
         {
             Alignment = StringAlignment.Center,
             LineAlignment = StringAlignment.Center,
-            Trimming = StringTrimming.EllipsisCharacter
+            Trimming = StringTrimming.EllipsisCharacter,
+            FormatFlags = StringFormatFlags.NoWrap
         };
+        g.DrawString(text, font, brush, bounds, format);
+    }
+
+    private void DrawEnhanced(Graphics g, LrcLine line, long lyricTime,
+        float centerY, float points, float boxHeight)
+    {
         var bounds = new RectangleF(26, centerY - boxHeight / 2,
             Math.Max(1, Width - 52), boxHeight);
-        g.DrawString(text, font, brush, bounds, format);
+        using var font = FitFont(g, line.Text, points, true, bounds.Width);
+        using var format = new StringFormat(StringFormat.GenericTypographic)
+        {
+            Alignment = StringAlignment.Center,
+            LineAlignment = StringAlignment.Center,
+            FormatFlags = StringFormatFlags.NoWrap,
+            Trimming = StringTrimming.EllipsisCharacter
+        };
+        using var unplayed = new SolidBrush(Other);
+        using var played = new SolidBrush(Highlight);
+        g.DrawString(line.Text, font, unplayed, bounds, format);
+
+        int playedCharacters = 0;
+        foreach (var word in line.Words!)
+        {
+            if (lyricTime < word.AtMs) break;
+            playedCharacters += word.Text.Length;
+        }
+        if (playedCharacters <= 0) return;
+        if (playedCharacters >= line.Text.Length)
+        {
+            g.DrawString(line.Text, font, played, bounds, format);
+            return;
+        }
+
+        // Reveal the completed words from left to right, keeping the whole line centered.
+        using var measure = new StringFormat(StringFormat.GenericTypographic)
+        {
+            FormatFlags = StringFormatFlags.NoWrap
+        };
+        float fullWidth = g.MeasureString(line.Text, font, 10000, measure).Width;
+        float prefixWidth = g.MeasureString(line.Text[..playedCharacters], font, 10000, measure).Width;
+        float left = bounds.Left + (bounds.Width - fullWidth) / 2f;
+        var saved = g.Save();
+        g.SetClip(new RectangleF(left - 1, bounds.Top,
+            Math.Min(bounds.Right - left + 1, prefixWidth + 2), bounds.Height),
+            CombineMode.Intersect);
+        g.DrawString(line.Text, font, played, bounds, format);
+        g.Restore(saved);
     }
 }
 
