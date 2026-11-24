@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.IO.MemoryMappedFiles;
 using System.Text;
 using Windows.Media.Control;
 
@@ -29,6 +30,11 @@ internal sealed class DetectorForm : Form
     private static readonly Color Accent = Color.FromArgb(80, 220, 219);
 
     private readonly Label _status = TextLabel(11, Accent);
+    private readonly Label _positionLabel = TextLabel(9, Dim, true);
+    private readonly NativeTimelineReader _bridge = new();
+    private bool _bridgeWasActive;
+    private ulong _lastBridgeGeneration;
+    private int _bridgeInvalidReads;
     private readonly Label _track = TextLabel(20, Ink, true);
     private readonly Label _artist = TextLabel(12, Dim);
     private readonly Label _app = TextLabel(10, Dim);
@@ -62,8 +68,8 @@ internal sealed class DetectorForm : Form
     {
         Text = "Melisma • Windows Media Detector — Foobar2000";
         StartPosition = FormStartPosition.CenterScreen;
-        Size = new Size(880, 700);
-        MinimumSize = new Size(740, 590);
+        Size = new Size(940, 780);
+        MinimumSize = new Size(800, 690);
         BackColor = Background;
         ForeColor = Ink;
         Font = new Font("Segoe UI", 10f);
@@ -76,21 +82,21 @@ internal sealed class DetectorForm : Form
             ColumnCount = 1,
             RowCount = 6,
         };
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 64));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 35));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 132));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 167));
-        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 45));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 96));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 39));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 150));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 194));
+        root.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         Controls.Add(root);
 
         var titleBlock = new Panel { Dock = DockStyle.Fill };
         var header = TextLabel(21, Ink, true);
         header.Text = "Melisma  /  Media Detector";
-        header.SetBounds(0, 0, 760, 36);
+        header.SetBounds(0, 0, 800, 54);
         var sub = TextLabel(10, Dim);
         sub.Text = "Windows karaoke proof of concept · Read-only monitoring · Foobar2000";
-        sub.SetBounds(0, 41, 770, 22);
+        sub.SetBounds(0, 56, 820, 32);
         titleBlock.Controls.AddRange([header, sub]);
         root.Controls.Add(titleBlock, 0, 0);
         
@@ -100,8 +106,8 @@ internal sealed class DetectorForm : Form
         
         var songCard = PanelCard();
         var songGrid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
-        songGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
-        songGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 30));
+        songGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 66));
+        songGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 36));
         songGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         _track.Text = "Waiting for Foobar2000...";
         _artist.Text = "Play an MP3 in Foobar2000";
@@ -117,11 +123,13 @@ internal sealed class DetectorForm : Form
         var timelineGrid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4 };
         timelineGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         timelineGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        timelineGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 27));
-        timelineGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 56));
-        timelineGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 20));
+        timelineGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+        timelineGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 70));
+        timelineGrid.RowStyles.Add(new RowStyle(SizeType.Absolute, 32));
         timelineGrid.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        timelineGrid.Controls.Add(Cell("POSITION REPORTED BY WINDOWS"), 0, 0);
+        _positionLabel.Text = "POSITION REPORTED BY WINDOWS";
+        _positionLabel.Dock = DockStyle.Fill;
+        timelineGrid.Controls.Add(_positionLabel, 0, 0);
         timelineGrid.Controls.Add(Cell("ESTIMATED LIVE POSITION"), 1, 0);
         _raw.Dock = _estimated.Dock = DockStyle.Fill;
         _raw.Text = _estimated.Text = "00:00.000";
@@ -161,10 +169,11 @@ internal sealed class DetectorForm : Form
         root.Controls.Add(logCard, 0, 5);
         AddLog("Ready. Monitoring Windows media sessions at 250 ms intervals.");
         AddLog("Play, pause, seek and skip in Foobar2000. Then save a CSV if timing looks irregular.");
+        AddLog("If the optional Foobar2000 Bridge is installed, direct native position and length appear.");
         AddLog("The estimated clock is extrapolated; it is NOT proof of millisecond accuracy.");
 
         Shown += async (_, _) => await StartAsync();
-        FormClosed += (_, _) => _pollTimer.Dispose();
+        FormClosed += (_, _) => { _pollTimer.Dispose(); _bridge.Dispose(); };
         _pollTimer.Tick += async (_, _) => await PollAsync();
     }
 
@@ -204,6 +213,7 @@ internal sealed class DetectorForm : Form
                     _lastTitle = "";
                     _lastMediaRead = DateTimeOffset.MinValue;
                     _lastRaw = TimeSpan.MinValue;
+                    _bridgeWasActive = false;
                 }
                 _status.Text = "No Foobar2000 media session — start playing an MP3";
                 _track.Text = "Waiting for Foobar2000...";
@@ -241,17 +251,54 @@ internal sealed class DetectorForm : Form
             var predicted = playing ? position + age : position;
             if (length > TimeSpan.Zero && predicted > length) predicted = length;
 
-            _status.Text = playing ? "● Foobar2000 PLAYING" : $"● Foobar2000 {info.PlaybackStatus.ToString().ToUpperInvariant()}";
+            // Prefer local, read-only Foobar2000 bridge when installed.
+            // Native snapshots contain exactly the position measured on Foobar's
+            // main thread, with a monotonic timestamp and a consistency sequence.
+            if (_bridge.TryRead(out var direct))
+            {
+                if (!_bridgeWasActive)
+                    AddLog("Direct Foobar2000 bridge connected: native playback position + duration.");
+                _bridgeWasActive = true;
+                _positionLabel.Text = "POSITION FROM FOOBAR2000";
+                if (_lastBridgeGeneration != 0 && _lastBridgeGeneration != direct.Generation)
+                    AddLog("Foobar2000 bridge: new track generation " + direct.Generation);
+                _lastBridgeGeneration = direct.Generation;
+                var directAgeMs = Math.Max(0, Environment.TickCount64 - direct.TickMs);
+                age = TimeSpan.FromMilliseconds(Math.Min(directAgeMs, 10000));
+                playing = direct.State == 1;
+                position = TimeSpan.FromMilliseconds(direct.PositionMs);
+                length = direct.DurationMs > 0 ? TimeSpan.FromMilliseconds(direct.DurationMs) : TimeSpan.Zero;
+                predicted = playing ? position + age : position;
+                if (length > TimeSpan.Zero && predicted > length) predicted = length;
+                _status.Text = direct.State switch
+                {
+                    1 => "● Foobar2000 PLAYING · Direct bridge",
+                    2 => "● Foobar2000 PAUSED · Direct bridge",
+                    _ => "● Foobar2000 STOPPED · Direct bridge"
+                };
+            }
+            else
+            {
+                if (_bridgeWasActive)
+                {
+                    AddLog("Direct bridge unavailable; falling back to Windows media session.");
+                    _bridgeWasActive = false;
+                    _lastBridgeGeneration = 0;
+                }
+                _positionLabel.Text = "POSITION REPORTED BY WINDOWS";
+                _status.Text = playing ? "● Foobar2000 PLAYING · Windows metadata only" :
+                    $"● Foobar2000 {info.PlaybackStatus.ToString().ToUpperInvariant()} · Windows";
+            }
             _raw.Text = Clock(position);
             _estimated.Text = Clock(predicted);
             _duration.Text = "Track duration: " + (length > TimeSpan.Zero ? Clock(length) : "not reported");
-            _freshness.Text = timeline.LastUpdatedTime.Year > 2000
-                ? "Timeline age: " + age.TotalSeconds.ToString("F2", CultureInfo.InvariantCulture) + " s"
+            _freshness.Text = _bridgeWasActive || timeline.LastUpdatedTime.Year > 2000
+                ? "Snapshot age: " + age.TotalMilliseconds.ToString("F0", CultureInfo.InvariantCulture) + " ms"
                 : "Timeline age: not reported";
             _progress.Value = length > TimeSpan.Zero
                 ? Math.Clamp((int)(1000 * Math.Clamp(predicted.TotalMilliseconds / length.TotalMilliseconds, 0, 1)), 0, 1000)
                 : 0;
-            _app.Text = "Source application: " + appId;
+            _app.Text = "Source application: " + appId + (_bridgeWasActive ? " · native position available" : "");
 
             if (_lastRaw != position)
             {
@@ -376,3 +423,65 @@ internal sealed class DetectorForm : Form
         DateTimeOffset At, string AppId, string Title, string Artist, string State,
         double ReportedMs, double EstimatedMs, double DurationMs, double AgeMs);
 }
+
+
+/// <summary>
+/// Versioned read-only Windows shared memory created by foo_melisma_bridge.dll.
+/// A single writer publishes an even sequence when its fields are consistent.
+/// </summary>
+internal sealed class NativeTimelineReader : IDisposable
+{
+    private const string Name = @"Local\MelismaFoobarBridge_v1";
+    private const uint Magic = 0x4D454C49;
+    private MemoryMappedFile? _mapping;
+    private MemoryMappedViewAccessor? _view;
+
+    public bool TryRead(out DirectTimeline sample)
+    {
+        sample = default;
+        try
+        {
+            if (_view == null)
+            {
+                _mapping = MemoryMappedFile.OpenExisting(Name, MemoryMappedFileRights.Read);
+                _view = _mapping.CreateViewAccessor(0, 48, MemoryMappedFileAccess.Read);
+            }
+            if (_view.ReadUInt32(0) != Magic || _view.ReadUInt32(4) != 1)
+                return false;
+
+            for (int i = 0; i < 3; i++)
+            {
+                int before = _view.ReadInt32(8);
+                if ((before & 1) != 0) continue;
+                int state = _view.ReadInt32(12);
+                long positionUs = _view.ReadInt64(16);
+                long durationUs = _view.ReadInt64(24);
+                long tick = _view.ReadInt64(32);
+                ulong generation = _view.ReadUInt64(40);
+                int after = _view.ReadInt32(8);
+                if (before != after || (after & 1) != 0) continue;
+                if (state is < 0 or > 2 || positionUs < 0 || tick <= 0 ||
+                    durationUs > 24L * 60 * 60 * 1000000) return false;
+                sample = new DirectTimeline(state, positionUs / 1000.0,
+                    durationUs / 1000.0, tick, generation);
+                return true;
+            }
+            return false;
+        }
+        catch (FileNotFoundException) { Dispose(); return false; }
+        catch (UnauthorizedAccessException) { Dispose(); return false; }
+        catch (IOException) { Dispose(); return false; }
+        catch (ObjectDisposedException) { Dispose(); return false; }
+    }
+
+    public void Dispose()
+    {
+        _view?.Dispose();
+        _mapping?.Dispose();
+        _view = null;
+        _mapping = null;
+    }
+}
+
+internal readonly record struct DirectTimeline(
+    int State, double PositionMs, double DurationMs, long TickMs, ulong Generation);
