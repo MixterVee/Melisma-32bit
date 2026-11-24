@@ -1,8 +1,22 @@
-# Melisma Universal — Windows Lyrics Preview v0.4
+# Melisma Universal — Windows Lyrics Preview v0.4.1
 
 Windows 11 x64 · Foobar2000 · read-only direct playback bridge
 
-## What's new in v0.4 — album-art backgrounds
+## What's new in v0.4.1 — controller preview stability
+
+- Keep the controller preview's gradient, album art, and lyric text in one fully buffered paint, with no independent background erase.
+- Fade partially visible lyrics at the **top and bottom of the controller preview** so lines enter and exit gracefully instead of flashing at its clipped edges.
+- Round preview-only text positions to full pixels to reduce shimmering while scrolling. The full-screen TV display is unchanged.
+- Lyric timestamps, track reading, word highlighting, pre-wrapping and saved per-song timing offsets are untouched.
+
+## First test for v0.4.1
+
+1. Keep the working v0.4 and v0.3.2 folders, extract the v0.4.1 build separately.
+2. Play the same section used in your recordings and focus on the **second-to-last lyric near the bottom** of the controller preview.
+3. Verify the lyric gently fades into place, rather than rapidly flashing as it approaches the bottom.
+4. Check the second-monitor TV still looks the same and timing is unchanged.
+
+## Retained from v0.4 — album-art backgrounds
 
 - **Automatic artwork** from the current Foobar2000 Windows media session, when Foobar2000 makes a thumbnail available to Windows. Not every media session exposes a usable image; the app does **not** scrape the internet or read your MP3 files.
 - **TV and preview backgrounds**: the same art is shown behind the lyrics in the Windows controller preview and on the extended-monitor TV karaoke window.
@@ -22,7 +36,7 @@ Windows 11 x64 · Foobar2000 · read-only direct playback bridge
 ## First test
 
 1. Keep your known-good v0.3.2 extracted folder and the existing Foobar2000 x64 Bridge component.
-2. Download **Melisma-Windows-Lyrics-Preview-v0.4-x64** from the GitHub Actions artifact for this branch and extract to a **different folder**.
+2. Download **Melisma-Windows-Lyrics-Preview-v0.4.1-x64** from the GitHub Actions artifact for this branch and extract to a **different folder**.
 3. Launch `MelismaLyricsViewer.exe` and start a track in Foobar2000. With **Album art background** selected, check whether the cover appears behind the lyrics.
 4. Choose a 1-second fade, then a 6-second fade, and change songs to compare. If no automatic art appears, use **Open cover image** to test the rendering and transitions with a local image.
 5. Test **Show on second monitor** and verify the full-screen TV display has the same darkened background and still displays pre-wrapped lyrics.

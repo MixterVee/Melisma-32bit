@@ -63,7 +63,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows Lyrics Preview v0.4";
+        Text = "Melisma Universal · Windows Lyrics Preview v0.4.1";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -171,7 +171,7 @@ internal sealed class LyricsController : Form
         toolbarArea.Controls.Add(artControls, 0, 1);
         grid.Controls.Add(toolbarArea, 0, 2);
 
-        _preview = new LyricsCanvas(CurrentFrame, _artwork) { Dock = DockStyle.Fill };
+        _preview = new LyricsCanvas(CurrentFrame, _artwork, controllerPreview: true) { Dock = DockStyle.Fill };
         grid.Controls.Add(_preview, 0, 3);
 
         var footer = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2 };
@@ -487,7 +487,7 @@ internal sealed class LyricsController : Form
     private static HttpClient CreateHttpClient()
     {
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("MelismaWindowsLyricsPreview/0.4.0");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("MelismaWindowsLyricsPreview/0.4.1");
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         return client;
     }
@@ -753,6 +753,7 @@ internal sealed class LyricsCanvas : Control
 {
     private readonly Func<LyricFrame> _frame;
     private readonly AlbumArtworkState _artwork;
+    private readonly bool _controllerPreview;
     private static readonly Color Highlight = Color.FromArgb(113, 236, 227);
     private static readonly Color Other = Color.FromArgb(142, 157, 181);
     private const float SidePadding = 26f;
@@ -779,13 +780,26 @@ internal sealed class LyricsCanvas : Control
         public void Dispose() => Font.Dispose();
     }
 
-    public LyricsCanvas(Func<LyricFrame> frame, AlbumArtworkState artwork)
+    public LyricsCanvas(Func<LyricFrame> frame, AlbumArtworkState artwork,
+        bool controllerPreview = false)
     {
         _frame = frame;
         _artwork = artwork;
+        _controllerPreview = controllerPreview;
+        // Paint background, art and lyrics together in a single buffered
+        // frame. Separate background erases can cause a brief visible flash,
+        // especially in the smaller controller preview.
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+            ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
         DoubleBuffered = true;
         BackColor = Color.FromArgb(17, 23, 39);
         Dock = DockStyle.Fill;
+    }
+
+    protected override void OnPaintBackground(PaintEventArgs e)
+    {
+        // OnPaint always fills the entire canvas with the gradient and optional
+        // cover art, so a separate erase would only make flicker more likely.
     }
 
     protected override void OnPaint(PaintEventArgs e)
@@ -846,6 +860,14 @@ internal sealed class LyricsCanvas : Control
             if (y + layout.TotalHeight / 2f < 0 ||
                 y - layout.TotalHeight / 2f > Height) continue;
 
+            // The controller has a much shorter lyric viewport than the TV.
+            // Make partially exposed top/bottom lines ease into visibility
+            // rather than flash as glyphs enter/leave the clipped edge.
+            float edgeOpacity = _controllerPreview
+                ? PreviewEdgeOpacity(y, layout.TotalHeight) : 1f;
+            if (edgeOpacity <= 0f) continue;
+            if (_controllerPreview) y = (float)Math.Round(y);
+
             float emphasis = index == active ? eased :
                 animate && index == _transitionFrom ? 1f - eased : 0f;
             var color = Blend(Other, Highlight, emphasis);
@@ -862,8 +884,21 @@ internal sealed class LyricsCanvas : Control
                 playedCharacters = Math.Clamp(count, 0, line.Text.Length);
             }
             DrawLayout(g, layout, y, playedCharacters.HasValue ? Other : color,
-                playedCharacters, emphasis);
+                playedCharacters, emphasis, edgeOpacity);
         }
+    }
+
+    private float PreviewEdgeOpacity(float y, float lineHeight)
+    {
+        float transition = Math.Clamp(Height * 0.16f, 40f, 85f);
+        float topGap = y - lineHeight * 0.5f;
+        float bottomGap = Height - (y + lineHeight * 0.5f);
+        // Allow a little text to show while crossing the boundary, but
+        // smoothly suppress half-clipped characters near both edges.
+        float top = Math.Clamp((topGap + lineHeight * 0.25f) / transition, 0f, 1f);
+        float bottom = Math.Clamp((bottomGap + lineHeight * 0.25f) / transition, 0f, 1f);
+        float strength = Math.Min(top, bottom);
+        return strength * strength * (3f - 2f * strength);
     }
 
     private void DrawArtworkBackground(Graphics g)
@@ -1069,7 +1104,8 @@ internal sealed class LyricsCanvas : Control
     }
 
     private void DrawLayout(Graphics g, TextLayout layout,
-        float centerY, Color color, int? playedCharacters, float emphasis)
+        float centerY, Color color, int? playedCharacters, float emphasis,
+        float opacity = 1f)
     {
         // The row breaks and reserved height remain fixed. Only the actual
         // font size/color animate, so upcoming lyrics are already wrapped.
@@ -1078,8 +1114,11 @@ internal sealed class LyricsCanvas : Control
             layout.Font.SizeInPoints * scale,
             emphasis >= 0.5f ? FontStyle.Bold : FontStyle.Regular,
             GraphicsUnit.Point);
-        using var normalBrush = new SolidBrush(color);
-        using var playedBrush = new SolidBrush(Highlight);
+        opacity = Math.Clamp(opacity, 0f, 1f);
+        using var normalBrush = new SolidBrush(Color.FromArgb(
+            (int)Math.Round(color.A * opacity), color));
+        using var playedBrush = new SolidBrush(Color.FromArgb(
+            (int)Math.Round(Highlight.A * opacity), Highlight));
         using var format = new StringFormat(StringFormat.GenericTypographic)
         {
             Alignment = StringAlignment.Center,
