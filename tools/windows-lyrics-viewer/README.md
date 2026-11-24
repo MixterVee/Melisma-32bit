@@ -1,33 +1,32 @@
-# Melisma Universal — Windows Lyrics Preview v0.2
+# Melisma Universal — Windows Lyrics Preview v0.3
 
-First Windows karaoke lyric-display prototype for Foobar2000.
+Windows 11 x64 · Foobar2000 · direct playback bridge
 
-## Features
+## What's new in v0.3
 
-- Uses the existing **Melisma Foobar2000 Bridge** to read playback position, pause, seek, track transitions and duration directly from Foobar2000.
-- Uses Windows Global System Media Transport Controls (GSMTC) to obtain Foobar2000 song title, artist and album.
-- Automatically searches **LRCLIB** for time-synced lyrics. Sends title, artist and duration to LRCLIB for matching; no MP3 files or audio are uploaded.
-- Can open a local **.lrc** lyrics file instead. Only timestamped lyrics are shown as synchronized.
-- Highlights the current lyric line in a preview window; **Show on second monitor** opens a separate full-screen lyrics window on the TV while controls stay on the laptop.
-- Live plus/minus 100ms correction buttons for testing line timing. **No cloud sync or stem controls yet.**
+- **Per-song timing memory.** Adjust the lyrics with ±100 ms buttons; the offset is saved automatically and restored when you return to the same song. Reset also clears that song's saved correction.
+- **Enhanced LRC word timing.** If an LRC file contains `<mm:ss.xx>` word markers, completed words are progressively highlighted. Ordinary timestamped lyrics continue to highlight complete lines (no fabricated word timing).
+- **Smoother line transitions.** Adjacent lyric lines glide into position during normal playback. Large seeks jump directly to the correct line.
+- **Longer lyrics fit better.** The viewer and TV display shrink oversized text to fit the available width before truncating it.
 
-## How to test
+These changes apply to both the controller preview and the existing full-screen second-monitor display. The Foobar2000 bridge and Stem Separator are unchanged.
 
-1. Install our previous Foobar2000 x64 Bridge component and restart Foobar2000.
-2. Download this Windows Lyrics Preview artifact ZIP; extract and start MelismaLyricsViewer.exe.
-3. Play a track in Foobar2000. It should detect the title, look up synchronized lyrics and follow the playback position.
-4. If no suitable synced lyrics are found, choose **Open .lrc** and select a time-stamped LRC file yourself.
-5. Pause, seek, and switch tracks to test line highlighting. Use +/-100ms buttons to adjust timing experimentally.
-6. Connect your laptop to a TV with HDMI, press Win+P → Extend, then choose **Show on second monitor**. The controller remains on the laptop and TV displays the lyrics full-screen.
+## Install and test
 
-### Notes
+1. Leave your existing working Foobar2000 x64 Bridge component installed.
+2. Download the `Melisma-Windows-Lyrics-Preview-v0.3-x64` ZIP from the GitHub Actions build for this branch and extract it into a **new** folder (keep v0.2 as a backup).
+3. Launch `MelismaLyricsViewer.exe`. Play a song in Foobar2000 and verify that lyrics follow it.
+4. Adjust timing, close the viewer, reopen it and replay the same song. The saved offset should reappear.
+5. Switch to a different song; its correction should be independent. Use **Reset** to clear an offset for the current song.
+6. For dual-monitor testing, use **Show on second monitor** with Windows display mode set to **Extend**.
+7. For word highlighting, open an **enhanced** .lrc file that includes inline `<mm:ss.xx>` timestamps. Standard LRCLIB timed lyrics generally provide only line timestamps.
 
-- Windows 11 x64; self-contained .NET 8 build, no extra .NET installation.
-- This first prototype supports **line-synchronized LRC lyrics**. It does not yet support word-by-word animation; that will be a later development milestone.
-- LRCLIB currently provides a free public API; an internet connection is needed for automatic lookup. Rate limiting is respected by making requests only on track changes or manual retry.
-- If using copyrighted lyrics, comply with their source's terms. The viewer only displays lyrics on your computer and does not redistribute them.
-- Playback timing is read-only, and no playback or DSP controls are issued to Foobar2000. The viewer does not alter MP3 tags or the Stem Separator.
-- Second-monitor mode shows a **separate lyrics-only window**. Foobar2000 and the controller stay on the Windows laptop.
-- Windows lyrics offset is currently an in-memory test adjustment and not synced to Firebase.
+## Notes
 
-Project uses the existing Melisma Foobar2000 Bridge read-only shared-memory interface.
+- Timing corrections are stored locally in `%LOCALAPPDATA%\MelismaUniversal\WindowsLyricsViewer\timing-offsets.json`.
+- The maximum correction is ±20,000 ms. Settings never modify audio files, MP3 tags, Foobar2000 settings, or the bridge.
+- Playback metadata and direct bridge timing are read-only. Automatic LRCLIB searches send track title, artist, optional album and duration, **not** audio.
+- No Firebase Cloud Sync, album-art backgrounds or stem controls are included yet.
+- Windows 11 64-bit; self-contained .NET 8 build. The app can be unsigned during testing; use only artifacts from this repository.
+
+Source: `tools/windows-lyrics-viewer/` and `.github/workflows/windows-lyrics-viewer.yml`.
