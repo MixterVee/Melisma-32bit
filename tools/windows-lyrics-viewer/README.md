@@ -1,8 +1,16 @@
-# Melisma Universal — Windows Lyrics Preview v0.4.1
+# Melisma Universal — Windows Lyrics Preview v0.4.2
 
 Windows 11 x64 · Foobar2000 · read-only direct playback bridge
 
-## What's new in v0.4.1 — controller preview stability
+## What's new in v0.4.2 — quiet footer
+
+- Removed the continuously updating elapsed/duration counter, playback state, and bridge status from the bottom of the controller.
+- The footer now displays only **Lyrics delay: +2000 ms (saved for this song)** (or the current song's actual correction).
+- This label changes only when a track is detected or the user presses −100 ms / +100 ms / Reset; it never refreshes on the 55 ms drawing timer.
+- Removed the redundant footer lyric-source row and returned that space to the preview.
+- Source status and playback state remain internal for lyrics synchronization; playback timing and the TV screen are unchanged.
+
+## Retained from v0.4.1 — controller preview stability
 
 - Keep the controller preview's gradient, album art, and lyric text in one fully buffered paint, with no independent background erase.
 - Fade partially visible lyrics at the **top and bottom of the controller preview** so lines enter and exit gracefully instead of flashing at its clipped edges.
@@ -36,7 +44,7 @@ Windows 11 x64 · Foobar2000 · read-only direct playback bridge
 ## First test
 
 1. Keep your known-good v0.3.2 extracted folder and the existing Foobar2000 x64 Bridge component.
-2. Download **Melisma-Windows-Lyrics-Preview-v0.4.1-x64** from the GitHub Actions artifact for this branch and extract to a **different folder**.
+2. Download **Melisma-Windows-Lyrics-Preview-v0.4.2-x64** from the GitHub Actions artifact for this branch and extract to a **different folder**.
 3. Launch `MelismaLyricsViewer.exe` and start a track in Foobar2000. With **Album art background** selected, check whether the cover appears behind the lyrics.
 4. Choose a 1-second fade, then a 6-second fade, and change songs to compare. If no automatic art appears, use **Open cover image** to test the rendering and transitions with a local image.
 5. Test **Show on second monitor** and verify the full-screen TV display has the same darkened background and still displays pre-wrapped lyrics.
