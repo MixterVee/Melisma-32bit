@@ -92,6 +92,7 @@ public:
             console::print("foo_melisma_bridge: could not create shared memory");
             return;
         }
+        const bool alreadyExists = GetLastError() == ERROR_ALREADY_EXISTS;
         g_shared = static_cast<BridgeSnapshot*>(
             MapViewOfFile(g_mapping, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(BridgeSnapshot)));
         if (g_shared == nullptr) {
@@ -102,7 +103,7 @@ public:
         }
         // The name is confined to the interactive Windows user session.
         // Do not overwrite a competing Foobar instance's live bridge mapping.
-        if (GetLastError() == ERROR_ALREADY_EXISTS) {
+        if (alreadyExists) {
             UnmapViewOfFile(g_shared);
             g_shared = nullptr;
             CloseHandle(g_mapping);
