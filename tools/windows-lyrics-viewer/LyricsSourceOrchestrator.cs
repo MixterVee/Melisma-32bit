@@ -134,6 +134,29 @@ internal static class LyricsSourceOrchestrator
                   $"({(a.WordTimed ? "Word" : "Line")} tier)"
                 : a.Reason)}"));
 
+        // Timed syllables remain authoritative; other services only
+        // restore spaces missing from a provider's raw English YRC text.
+        // Never combine lines whose actual non-space characters differ.
+        if (best is { WordTimed: true, Lines: { Count: > 0 } })
+        {
+            var referenceLines = all
+                .Where(x => x.Id != best.Id && x.Lines is { Count: > 0 })
+                .SelectMany(x => x.Lines!)
+                .ToList();
+            if (referenceLines.Count > 0)
+            {
+                var (spaced, fixedLines) = LyricWordSpacing.Restore(
+                    best.Lines, referenceLines);
+                if (fixedLines > 0)
+                {
+                    best = best with { Lines = spaced };
+                    status += Environment.NewLine +
+                        $"Word spacing restored on {fixedLines} matching " +
+                        "timed lines using another source (timing unchanged).";
+                }
+            }
+        }
+
         if (best is { WordTimed: true, Lines: { Count: > 0 } } &&
             reference is { Count: > 0 } && best.Id != "lrclib")
         {
