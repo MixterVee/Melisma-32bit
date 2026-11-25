@@ -35,6 +35,18 @@ lyrics did not appear until ~15–20 seconds after singing began.
   the current lyrics upgrade automatically using the existing source
   ranking and missing-intro repair; no word durations are invented.
 - Searches from a previous song are cancelled on track change.
+- Following Android's immediate cached-result path, successful selected
+  lyrics are now also saved locally in
+  `%LOCALAPPDATA%\MelismaUniversal\WindowsLyricsViewer\lyrics-cache`.
+  Playing the same tagged track again displays those saved lyrics at once,
+  before the new search finishes. Matches include title, artist, album
+  and a duration sanity check. Entries expire after 30 days; they do
+  **not modify MP3 tags** and never degrade cached genuine word timing
+  to an inferior line-only provisional result.
+- This is **not full Android prefetch parity**. The Windows foobar2000
+  media-session bridge currently exposes only the playing song, not
+  the complete playback queue, so first-time uncached tracks still
+  need a live provider response.
 - **Sources…** now shows the number of providers completed and
   **"First playable lyrics displayed after N seconds"**, so network
   delays can be distinguished from missing first-verse timestamps.
