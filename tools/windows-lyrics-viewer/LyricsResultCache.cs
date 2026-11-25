@@ -21,7 +21,7 @@ internal sealed class LyricsResultCache
         string SourceId,
         string SourceName,
         DateTime SavedUtc,
-        List<LrcLine> Lines)
+        List<LrcLine> Lines, string? PlainLyrics = null)
     {
         public bool WordTimed =>
             Lines.Count > 0 &&
@@ -43,11 +43,18 @@ internal sealed class LyricsResultCache
             "MelismaUniversal", "WindowsLyricsViewer", "lyrics-cache");
     }
 
-    private string PathFor(string title, string artist, string album)
-    {
-        string key = title.Trim().ToUpperInvariant() + "\n" +
+    private string PathFor(string title, string artist, string album) =>
+        FileForKey(title.Trim().ToUpperInvariant() + "\n" +
+            artist.Trim().ToUpperInvariant());
+
+    // Read old v0.6.7-v0.6.9 entries without breaking existing caches.
+    private string LegacyPath(string title, string artist, string album) =>
+        FileForKey(title.Trim().ToUpperInvariant() + "\n" +
             artist.Trim().ToUpperInvariant() + "\n" +
-            album.Trim().ToUpperInvariant();
+            album.Trim().ToUpperInvariant());
+
+    private string FileForKey(string key)
+    {
         byte[] digest = SHA256.HashData(Encoding.UTF8.GetBytes(key));
         return Path.Combine(_root,
             Convert.ToHexString(digest.AsSpan(0, 12)) + ".json");
@@ -61,6 +68,11 @@ internal sealed class LyricsResultCache
         {
             string path = PathFor(title, artist, album);
             var info = new FileInfo(path);
+            if (!info.Exists)
+            {
+                path = LegacyPath(title, artist, album);
+                info = new FileInfo(path);
+            }
             if (!info.Exists || info.Length is < 32 or > MaxBytes)
                 return false;
             using var file = File.OpenRead(path);
@@ -71,10 +83,9 @@ internal sealed class LyricsResultCache
                  DateTime.UtcNow - result.SavedUtc > MaxAge) ||
                 !string.Equals(result.Title, title, StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(result.Artist, artist, StringComparison.OrdinalIgnoreCase) ||
-                !string.Equals(result.Album, album, StringComparison.OrdinalIgnoreCase) ||
                 durationMs > 0 && result.DurationMs > 0 &&
                     Math.Abs(durationMs - result.DurationMs) > 15000 ||
-                !Valid(result.Lines) ||
+                !(Valid(result.Lines) || ValidPlain(result.PlainLyrics)) ||
                 result.SourceId.Length is < 2 or > 48 ||
                 result.SourceName.Length is < 2 or > 160)
                 return false;
@@ -92,8 +103,23 @@ internal sealed class LyricsResultCache
         long durationMs, string sourceId, string sourceName,
         IReadOnlyList<LrcLine> lines)
     {
-        if (!Valid(lines) || string.IsNullOrWhiteSpace(title) ||
-            string.IsNullOrWhiteSpace(artist) ||
+        if (!Valid(lines)) return;
+        Write(title, artist, album, durationMs, sourceId, sourceName,
+            lines, null);
+    }
+
+    internal void SavePlain(string title, string artist, string album,
+        long durationMs, string plain)
+    {
+        if (!ValidPlain(plain)) return;
+        Write(title, artist, album, durationMs, "lrclib", "LRCLIB", [], plain);
+    }
+
+    private void Write(string title, string artist, string album,
+        long durationMs, string sourceId, string sourceName,
+        IReadOnlyList<LrcLine> lines, string? plain)
+    {
+        if (string.IsNullOrWhiteSpace(title) ||
             sourceId.Length is < 2 or > 48 ||
             sourceName.Length is < 2 or > 160) return;
 
@@ -107,27 +133,27 @@ internal sealed class LyricsResultCache
             {
                 var record = new Entry(1, title, artist, album,
                     durationMs, sourceId, sourceName,
-                    DateTime.UtcNow, lines.ToList());
+                    DateTime.UtcNow, lines.ToList(), plain);
                 JsonSerializer.Serialize(file, record);
             }
-            if (new FileInfo(pending).Length > MaxBytes)
-                return;
+            if (new FileInfo(pending).Length > MaxBytes) return;
             File.Move(pending, target, overwrite: true);
             pending = null;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or
-                JsonException or NotSupportedException or ArgumentException)
+            JsonException or NotSupportedException or ArgumentException)
         {
-            // Cache failure is never a lyric playback failure.
+            // Cache failure must not affect lyric display or music playback.
         }
         finally
         {
             if (pending != null)
-            {
                 try { File.Delete(pending); } catch (IOException) { }
-            }
         }
     }
+
+    private static bool ValidPlain(string? plain) =>
+        !string.IsNullOrWhiteSpace(plain) && plain.Length <= 30000;
 
     internal static bool ShouldReplace(Entry cached,
         LyricsSourceOrchestrator.Answer candidate)

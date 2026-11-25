@@ -41,6 +41,9 @@ internal static class LyricsCacheTests
             check(!cache.TryLoad("Edamame", "bbno$; Rich Brian", "Edamame",
                     180000, out _),
                 "Cache rejects metadata for a different track duration");
+            check(cache.TryLoad("Edamame", "bbno$; Rich Brian",
+                    "Single (different album tag)", 135000, out _),
+                "Android-style cache identity tolerates differing album metadata");
 
             var shorterLineOnly = new LyricsSourceOrchestrator.Answer(
                 "lrclib", "LRCLIB", [new LrcLine(20000, "line only")],
@@ -70,6 +73,15 @@ internal static class LyricsCacheTests
             check(lineCached != null &&
                 LyricsResultCache.ShouldReplace(lineCached, betterIntro),
                 "Real word timing upgrades cached line-only lyrics");
+            cache.SavePlain("Unknown Lyrics", "", "Album A", 145000,
+                "A plain lyric verse\nAnd another line");
+            check(cache.TryLoad("Unknown Lyrics", "", "Album B", 145000,
+                    out var plain) && plain != null &&
+                plain.PlainLyrics?.Contains("another line") == true &&
+                plain.Lines.Count == 0,
+                "Plain fallback is cached even when artist and album tags differ");
+            check(!cache.TryLoad("Unknown Lyrics", "", "Album B", 175000, out _),
+                "Plain text cache still rejects a different duration");
         }
         finally
         {

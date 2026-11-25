@@ -29,7 +29,7 @@ internal sealed record LrcLine(long AtMs, string Text, IReadOnlyList<LrcWord>? W
 internal sealed record LyricFrame(
     IReadOnlyList<LrcLine> Lines, int ActiveIndex,
     string Song, string Artist, string Message, long LyricPositionMs,
-    string Source);
+    string Source, string? PlainLyrics = null);
 
 internal sealed class LyricsController : Form
 {
@@ -54,6 +54,8 @@ internal sealed class LyricsController : Form
     private KaraokeDisplay? _projection;
     private bool _mediaBusy;
     private readonly List<LrcLine> _lines = new();
+    private string _plainLyrics = "";
+    private readonly HashSet<string> _upgradedCacheThisSession = new(StringComparer.Ordinal);
     private string _song = "", _artist = "", _album = "";
     private string _source = "No lyrics loaded";
     private string _lookupReport = "No lookup has been run yet.";
@@ -69,6 +71,7 @@ internal sealed class LyricsController : Form
     private string _clockSource = "No playback clock";
     private bool _clockUsable;
     private long _lastClockLabelTick;
+    private ulong _lastFoobarTrackGeneration;
 
     // Secondary Windows media-session timeline, usable when Foobar's
     // native bridge is absent. Unlike track metadata, this may not be
@@ -86,7 +89,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.9";
+        Text = "Melisma Universal · Windows v0.6.10";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -189,18 +192,30 @@ internal sealed class LyricsController : Form
         {
             ReadBridge();
             _idleBackground.Update(_playerState == 1, _display);
-            // Show an independently verifiable position in the controller.
-            // Without this, cached lyrics look frozen when the bridge is
-            // unavailable, and nobody can tell whether time is advancing.
             long now = Environment.TickCount64;
             if (now - _lastClockLabelTick >= 400)
             {
                 _lastClockLabelTick = now;
                 UpdateDelayLabel();
             }
-            _preview.Invalidate();
+
+            // Android uses a fast tick only while it has moving lyrics.
+            // The older unconditional 25ms loop repainted full cover art
+            // and Living effects even for silence, paused music and misses.
+            var current = CurrentFrame();
+            bool timedWord = _playerState == 1 && current.ActiveIndex >= 0 &&
+                current.ActiveIndex < current.Lines.Count &&
+                current.Lines[current.ActiveIndex].Words is { Count: > 0 } &&
+                (_display.GrowActiveWord || _display.SmoothWordFill);
+            int interval = timedWord ? 25 :
+                _playerState == 1 && current.Lines.Count > 0 ? 65 :
+                _playerState == 1 ? 75 : 120;
+            if (_screenTimer.Interval != interval) _screenTimer.Interval = interval;
+
+            if (WindowState != FormWindowState.Minimized && _preview.Visible)
+                _preview.Invalidate();
+            // Single shared paint clock: the TV must not paint twice.
             _projection?.Redraw();
-            // Avoid invalidating labels with identical text every frame.
             if (hint.Text != _notice) hint.Text = _notice;
         };
         _mediaTimer.Tick += async (_, _) => await PollMediaAsync();
@@ -269,6 +284,14 @@ internal sealed class LyricsController : Form
                 _bridgeFound = true;
                 _bridgeWasStale = false;
                 _clockUsable = true;
+                // Android reacts to track-change events, not a fixed media
+                // poll. Foobar's existing bridge publishes that event as a
+                // generation change, so ask GSMTC for metadata immediately.
+                if (native.Generation != _lastFoobarTrackGeneration)
+                {
+                    _lastFoobarTrackGeneration = native.Generation;
+                    if (_manager != null && !_mediaBusy) _ = PollMediaAsync();
+                }
                 _clockSource = "Foobar bridge";
                 _playerState = native.State;
                 _durationMs = native.DurationMs > 0 ? (long)native.DurationMs : 0;
@@ -411,6 +434,7 @@ internal sealed class LyricsController : Form
             _offsetSaved = true;
             UpdateDelayLabel();
             _lines.Clear();
+            _plainLyrics = "";
             _lookupReport = "Waiting for provider responses for " +
                 title + " — " + artist + "…";
             _source = "Looking up time-synced lyrics";
@@ -582,7 +606,7 @@ internal sealed class LyricsController : Form
         }
         return new LyricFrame(_lines, current,
             _song.Length > 0 ? _song : "Melisma Karaoke",
-            _artist, _notice, lyricMs, _source);
+            _artist, _notice, lyricMs, _source, _plainLyrics);
     }
 
     private void ToggleSecondScreen(object? sender, EventArgs e)
@@ -646,12 +670,13 @@ internal sealed class LyricsController : Form
 
     private async Task LoadLyricsAsync(bool requested)
     {
-        if (_song.Length == 0 || _artist.Length == 0)
+        // Android's LyricsRequest.isUsable only requires a title.
+        // A missing artist reduces confidence, but should not block all lookup.
+        if (_song.Length == 0)
         {
-            _lookupReport = $"Media metadata is incomplete.\nTitle: {_song}\nArtist: {_artist}\n" +
-                "Foobar2000 must publish both title and artist via Windows media sessions.";
-            _notice = "Play a tagged MP3 in Foobar2000 (title and artist required).";
-            _statusLabel.Text = "Lyrics lookup unavailable · Missing media metadata";
+            _lookupReport = "Foobar2000 has not published a track title.";
+            _notice = "Waiting for a title from Foobar2000.";
+            _statusLabel.Text = "Lyrics lookup unavailable · Missing title";
             return;
         }
 
@@ -666,7 +691,7 @@ internal sealed class LyricsController : Form
         var album = _album;
         var duration = _durationMs;
         _source = "Searching lyrics";
-        _statusLabel.Text = "Checking lrc.red, AMLL, Better Lyrics and LRCLIB…";
+        _statusLabel.Text = "Checking lyric providers…";
         _notice = requested ? "Checking all lyric sources again…" :
             "Finding the best real word-timed lyrics…";
         _lookupReport = $"Song: {title}\nArtist: {artist}\nAlbum: {album}\n" +
@@ -688,18 +713,24 @@ internal sealed class LyricsController : Form
         {
             _lines.Clear();
             _lines.AddRange(cached.Lines);
-            _source = cached.SourceId == "lrcred" ? "lrc.red" :
-                cached.SourceName;
+            _plainLyrics = cached.PlainLyrics ?? "";
+            _source = cached.SourceId == "lrcred" ? "lrc.red" : cached.SourceName;
             firstDisplayMs = 0;
             shownSource = "cache:" + cached.SourceId;
             shownName = cached.SourceName;
             shownCount = cached.Lines.Count;
-            _statusLabel.Text = cached.WordTimed
-                ? "Word-synced · Cached " + cached.SourceName
-                : "Line-synced · Cached " + cached.SourceName;
-            _notice = $"{cached.Lines.Count} saved lyrics ready · checking for updates";
+            _statusLabel.Text = cached.WordTimed ? "Word-synced · Cached " + cached.SourceName
+                : cached.Lines.Count > 0 ? "Line-synced · Cached " + cached.SourceName
+                : "Plain lyrics · Cached " + cached.SourceName;
+            _notice = "Lyrics loaded immediately from disk";
+            _lookupReport = "Immediately displayed stored lyrics from " + cached.SourceName +
+                ".\nAndroid-style cache: no fresh search required for word timing.";
             _preview.Invalidate();
             _projection?.Redraw();
+            // Android does not hammer every provider on every replay.
+            // Background improvement for lower-tier results is attempted
+            // just once per running session, never before showing the cache.
+            if (cached.WordTimed || !_upgradedCacheThisSession.Add(searchFor)) return;
         }
 
         bool CurrentSearch() =>
@@ -728,6 +759,7 @@ internal sealed class LyricsController : Form
                 // real word timing, or fill a missing first verse.
                 _lines.Clear();
                 _lines.AddRange(best!.Lines!);
+                _plainLyrics = "";
                 cached = null;
                 shownSource = best.Id;
                 shownName = best.Name;
@@ -754,11 +786,16 @@ internal sealed class LyricsController : Form
 
             if (!hasLines)
             {
-                if (complete && cached == null)
+                if (complete && cached == null && _lines.Count == 0)
                 {
-                    _source = "No synchronized lyrics found";
-                    _statusLabel.Text = "No timed lyrics found · Sources…";
-                    _notice = "No timed lyrics from these sources. See Sources…";
+                    _source = _plainLyrics.Length > 0 ? "LRCLIB plain lyrics"
+                        : "No synchronized lyrics found";
+                    _statusLabel.Text = _plainLyrics.Length > 0
+                        ? "Plain lyrics · No synchronized timestamps"
+                        : "No synchronized lyrics found · Sources…";
+                    _notice = _plainLyrics.Length > 0
+                        ? "Plain lyrics are available (no word timing)"
+                        : "No matching timed lyrics. Check Sources… for the reason.";
                 }
                 return;
             }
@@ -794,7 +831,19 @@ internal sealed class LyricsController : Form
                 async ct =>
                 {
                     var synced = await Lrclib.FindAsync(
-                        title, artist, album, duration, ct);
+                        title, artist, album, duration, ct, plain =>
+                        {
+                            if (!CurrentSearch() || _lines.Count > 0 ||
+                                string.IsNullOrWhiteSpace(plain)) return;
+                            _plainLyrics = plain;
+                            _source = "LRCLIB plain lyrics";
+                            _statusLabel.Text = "Plain lyrics · Seeking timed lyrics";
+                            _notice = "Showing plain lyrics while other sources are checked";
+                            _preview.Invalidate();
+                            _projection?.Redraw();
+                            if (!requested)
+                                _lyricCache.SavePlain(title, artist, album, duration, plain);
+                        });
                     return synced == null ? null : LrcParser.Parse(synced);
                 }, token, partial => Present(partial, complete: false));
             Present(lookup, complete: true);
@@ -823,7 +872,7 @@ internal sealed class LyricsController : Form
     {
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd(
-            "MelismaWindows/0.6.8 (Windows; https://github.com/MixterVee/Melisma-32bit)");
+            "MelismaWindows/0.6.10 (Windows; https://github.com/MixterVee/Melisma-32bit)");
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         return client;
     }
@@ -832,64 +881,116 @@ internal sealed class LyricsController : Form
     {
         private static string Arg(string value) => Uri.EscapeDataString(value);
         private static string? Field(JsonElement item, string name) =>
-            item.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String
-                ? v.GetString() : null;
+            item.TryGetProperty(name, out var field) &&
+            field.ValueKind == JsonValueKind.String ? field.GetString() : null;
 
+        // Android tries exact tags, cleaned title + primary artist, then
+        // a scored search. This avoids silently discarding valid lyrics
+        // because Foobar tags contain a featured artist or different album.
         public static async Task<string?> FindAsync(
-            string title, string artist, string album, long durationMs, CancellationToken token)
+            string title, string artist, string album, long durationMs,
+            CancellationToken token, Action<string>? onPlain = null)
         {
-            var url = "https://lrclib.net/api/get?track_name=" + Arg(title) +
-                "&artist_name=" + Arg(artist);
-            if (!string.IsNullOrWhiteSpace(album)) url += "&album_name=" + Arg(album);
-            if (durationMs > 0) url += "&duration=" +
-                Math.Round(durationMs / 1000.0).ToString(CultureInfo.InvariantCulture);
+            string clean = AndroidLyricsMatch.CleanTitle(title);
+            string primary = AndroidLyricsMatch.SplitArtists(artist).FirstOrDefault() ?? artist;
+            string? plainCandidate = null;
 
-            using (var response = await Client.GetAsync(url, token))
+            var exacts = new List<(string Title, string Artist, string Album, bool Duration)>
             {
+                (title, artist, album, true)
+            };
+            if (clean != title || primary != artist || album.Length > 0 || durationMs > 0)
+                exacts.Add((clean, primary, "", false));
+
+            foreach (var exact in exacts)
+            {
+                if (string.IsNullOrWhiteSpace(exact.Artist)) continue;
+                string url = "https://lrclib.net/api/get?track_name=" +
+                    Arg(exact.Title) + "&artist_name=" + Arg(exact.Artist);
+                if (exact.Album.Length > 0)
+                    url += "&album_name=" + Arg(exact.Album);
+                if (exact.Duration && durationMs > 0)
+                    url += "&duration=" + Math.Round(durationMs / 1000d)
+                        .ToString(CultureInfo.InvariantCulture);
+                using var response = await Client.GetAsync(url, token);
                 if (response.StatusCode == HttpStatusCode.TooManyRequests)
-                    throw new InvalidOperationException("LRCLIB rate limited the request. Try again later.");
-                if (response.IsSuccessStatusCode)
-                {
-                    using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(token));
-                    var direct = Field(json.RootElement, "syncedLyrics");
-                    if (!string.IsNullOrWhiteSpace(direct)) return direct;
-                }
-                else if (response.StatusCode != HttpStatusCode.NotFound)
-                    response.EnsureSuccessStatusCode();
+                    throw new HttpRequestException("LRCLIB rate limited the request");
+                if (response.StatusCode == HttpStatusCode.NotFound) continue;
+                response.EnsureSuccessStatusCode();
+                using var doc = JsonDocument.Parse(
+                    await response.Content.ReadAsStringAsync(token));
+                var item = doc.RootElement;
+                if (item.TryGetProperty("instrumental", out var instrumental) &&
+                    instrumental.ValueKind == JsonValueKind.True) continue;
+                var synced = Field(item, "syncedLyrics");
+                if (!string.IsNullOrWhiteSpace(synced)) return synced;
+                var plain = Field(item, "plainLyrics");
+                if (plain is { Length: > 4 and <= 30000 }) plainCandidate ??= plain;
             }
-            await Task.Delay(350, token);
-            // Best-effort search can find a nearby candidate with synchronized
-            // lines when album or metadata differ. Favor close durations.
-            url = "https://lrclib.net/api/search?track_name=" + Arg(title) +
-                "&artist_name=" + Arg(artist);
-            using var search = await Client.GetAsync(url, token);
-            if (search.StatusCode == HttpStatusCode.TooManyRequests)
-                throw new InvalidOperationException("LRCLIB rate limited the request. Try again later.");
-            search.EnsureSuccessStatusCode();
-            using var results = JsonDocument.Parse(await search.Content.ReadAsStringAsync(token));
-            if (results.RootElement.ValueKind != JsonValueKind.Array) return null;
 
-            string? best = null;
-            double bestScore = double.MaxValue;
-            foreach (var row in results.RootElement.EnumerateArray())
+            string searchUrl = "https://lrclib.net/api/search?track_name=" + Arg(clean);
+            if (!string.IsNullOrWhiteSpace(primary))
+                searchUrl += "&artist_name=" + Arg(primary);
+            using var search = await Client.GetAsync(searchUrl, token);
+            if (search.StatusCode == HttpStatusCode.TooManyRequests)
+                throw new HttpRequestException("LRCLIB rate limited search");
+            search.EnsureSuccessStatusCode();
+            using var results = JsonDocument.Parse(
+                await search.Content.ReadAsStringAsync(token));
+            string? bestTimed = null, bestPlain = null;
+            float bestTimedScore = -1f, bestPlainScore = -1f;
+            if (results.RootElement.ValueKind == JsonValueKind.Array)
             {
-                string? synced = Field(row, "syncedLyrics");
-                if (string.IsNullOrWhiteSpace(synced)) continue;
-                string titleMatch = Field(row, "trackName") ?? "";
-                string artistMatch = Field(row, "artistName") ?? "";
-                if (!titleMatch.Equals(title, StringComparison.OrdinalIgnoreCase) ||
-                    !artistMatch.Equals(artist, StringComparison.OrdinalIgnoreCase)) continue;
-                double reported = row.TryGetProperty("duration", out var d) &&
-                    d.ValueKind == JsonValueKind.Number ? d.GetDouble() : 0;
-                double delta = durationMs <= 0 ? 0 : Math.Abs(reported * 1000.0 - durationMs);
-                if (durationMs > 0 && delta > 3000) continue;
-                if (delta < bestScore)
+                foreach (var row in results.RootElement.EnumerateArray())
                 {
-                    best = synced;
-                    bestScore = delta;
+                    if (row.ValueKind != JsonValueKind.Object) continue;
+                    if (row.TryGetProperty("instrumental", out var instrumental) &&
+                        instrumental.ValueKind == JsonValueKind.True) continue;
+                    string candidateTitle = Field(row, "trackName") ?? "";
+                    string candidateArtist = Field(row, "artistName") ?? "";
+                    long candidateDuration = row.TryGetProperty("duration", out var d) &&
+                        d.ValueKind == JsonValueKind.Number
+                            ? (long)(d.GetDouble() * 1000d) : 0L;
+                    if (!Accepts(title, artist, durationMs, candidateTitle,
+                        candidateArtist, candidateDuration)) continue;
+                    float score = AndroidLyricsMatch.Score(title, artist, durationMs,
+                        candidateTitle, candidateArtist, candidateDuration);
+
+                    var synced = Field(row, "syncedLyrics");
+                    if (!string.IsNullOrWhiteSpace(synced) && score > bestTimedScore)
+                    {
+                        bestTimed = synced;
+                        bestTimedScore = score;
+                    }
+                    var plain = Field(row, "plainLyrics");
+                    if (plain is { Length: > 4 and <= 30000 } && score > bestPlainScore)
+                    {
+                        bestPlain = plain;
+                        bestPlainScore = score;
+                    }
                 }
             }
-            return best;
+            if (bestTimed != null) return bestTimed;
+            onPlain?.Invoke(bestPlain ?? plainCandidate ?? "");
+            return null;
+        }
+
+        internal static bool Accepts(string title, string artist, long durationMs,
+            string candidateTitle, string candidateArtist, long candidateDurationMs)
+        {
+            if (title.Length == 0 || candidateTitle.Length == 0) return false;
+            if (durationMs > 0 && candidateDurationMs > 0 &&
+                Math.Abs(durationMs - candidateDurationMs) > 10000) return false;
+            // Title only is ambiguous. With no artist, insist on a matching
+            // recording length and canonical title before showing lyrics.
+            if (string.IsNullOrWhiteSpace(artist))
+                return durationMs > 0 && candidateDurationMs > 0 &&
+                    Math.Abs(durationMs - candidateDurationMs) <= 5000 &&
+                    string.Equals(AndroidLyricsMatch.CleanTitle(title),
+                        AndroidLyricsMatch.CleanTitle(candidateTitle),
+                        StringComparison.OrdinalIgnoreCase);
+            return AndroidLyricsMatch.Score(title, artist, durationMs,
+                candidateTitle, candidateArtist, candidateDurationMs) >= 0.62f;
         }
     }
 }
@@ -1248,6 +1349,8 @@ internal sealed class LyricsCanvas : Control
     private float[] _lineCenters = [];
     private float _plannedWidth = -1f, _plannedPoints = -1f, _plannedDpi = -1f;
     private string _plannedSong = "", _plannedArtist = "", _plannedFontFamily = "";
+    private string _lastPlainLyrics = "";
+    private int _plainScrollLines;
 
     // A visual row remembers its original character offset so enhanced-LRC
     // word highlighting still follows the right words after a line wraps.
@@ -1278,6 +1381,11 @@ internal sealed class LyricsCanvas : Control
         DoubleBuffered = true;
         BackColor = Color.FromArgb(17, 23, 39);
         Dock = DockStyle.Fill;
+        MouseWheel += (_, e) =>
+        {
+            _plainScrollLines = Math.Max(0, _plainScrollLines - Math.Sign(e.Delta) * 3);
+            Invalidate();
+        };
     }
 
     protected override void OnPaintBackground(PaintEventArgs e)
@@ -1306,9 +1414,16 @@ internal sealed class LyricsCanvas : Control
             ClearPlan();
             _lastActive = int.MinValue;
             _transitionFrom = -1;
-            DrawBouncingDots(g, Environment.TickCount64);
-            DrawMessage(g, "Waiting for synchronized lyrics", Height * 0.58f, 20, Color.White, true);
-            DrawMessage(g, frame.Message, Height * 0.67f, 12, Other, false);
+            if (!string.IsNullOrWhiteSpace(frame.PlainLyrics))
+                DrawPlainLyrics(g, frame.PlainLyrics);
+            else
+            {
+                DrawBouncingDots(g, Environment.TickCount64);
+                string display = frame.Message.Contains("No matching", StringComparison.OrdinalIgnoreCase)
+                    ? "No synchronized lyrics found" : "Looking for lyrics…";
+                DrawMessage(g, display, Height * 0.58f, 20, Color.White, true);
+                DrawMessage(g, frame.Message, Height * 0.67f, 12, Other, false);
+            }
             g.Restore(textClip);
             DrawIdleTakeover(g);
             return;
@@ -1421,6 +1536,42 @@ internal sealed class LyricsCanvas : Control
         g.Restore(textClip);
         DrawSourceCredit(g, frame);
         DrawIdleTakeover(g);
+    }
+
+    private void DrawPlainLyrics(Graphics g, string plain)
+    {
+        // A real Android fallback: static text is displayed without
+        // inventing any lyric timing. Mouse wheel scrolls through lines.
+        if (_lastPlainLyrics != plain)
+        {
+            _lastPlainLyrics = plain;
+            _plainScrollLines = 0;
+        }
+        var area = LyricsArea;
+        var rect = RectangleF.Inflate(area, -Math.Min(38f, area.Width * 0.07f), -12f);
+        float points = Math.Clamp(rect.Width / 37f, 14f, 24f) * _display.FontScale;
+        using var heading = new Font("Segoe UI", Math.Clamp(points * 0.65f, 10f, 15f),
+            FontStyle.Bold);
+        using var font = new Font(_display.FontFamily, points, FontStyle.Regular);
+        using var textBrush = new SolidBrush(Color.FromArgb(233, 226, 240, 245));
+        using var headingBrush = new SolidBrush(Highlight);
+        g.DrawString("PLAIN LYRICS · NOT SYNCHRONIZED · SCROLL WITH MOUSE WHEEL",
+            heading, headingBrush, new RectangleF(rect.Left, rect.Top, rect.Width, 35f));
+        string[] rows = plain.Replace("\r", "").Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        float top = rect.Top + 37f;
+        float lineHeight = Math.Max(23f, font.GetHeight(g) * 1.27f);
+        int showing = Math.Max(1, (int)((rect.Bottom - top) / lineHeight));
+        _plainScrollLines = Math.Clamp(_plainScrollLines, 0, Math.Max(0, rows.Length - showing));
+        using var format = new StringFormat
+        {
+            Trimming = StringTrimming.EllipsisCharacter,
+            FormatFlags = StringFormatFlags.NoWrap
+        };
+        for (int i = _plainScrollLines;
+            i < Math.Min(rows.Length, _plainScrollLines + showing); i++)
+            g.DrawString(rows[i].Trim(), font, textBrush,
+                new RectangleF(rect.Left, top + (i - _plainScrollLines) * lineHeight,
+                    rect.Width, lineHeight), format);
     }
 
     private void DrawBouncingDots(Graphics g, long clockMs)
@@ -2149,7 +2300,7 @@ internal sealed class LyricsCanvas : Control
 internal sealed class KaraokeDisplay : Form
 {
     private readonly LyricsCanvas _canvas;
-    private readonly System.Windows.Forms.Timer _timer = new() { Interval = 25 };
+    // Driven by the controller's adaptive render clock, not a second timer.
 
     public KaraokeDisplay(Screen screen, Func<LyricFrame> frame, AlbumArtworkState artwork,
         MelismaDisplaySettings display, PlaybackIdleBackground idleBackground)
@@ -2163,9 +2314,7 @@ internal sealed class KaraokeDisplay : Form
         _canvas = new LyricsCanvas(frame, artwork, display, idleBackground) { Dock = DockStyle.Fill };
         Controls.Add(_canvas);
         KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) Close(); };
-        _timer.Tick += (_, _) => _canvas.Invalidate();
-        Shown += (_, _) => _timer.Start();
-        FormClosed += (_, _) => { _timer.Stop(); _timer.Dispose(); };
+        // One refresh per controller tick, avoiding duplicate TV paints.
     }
     public void Redraw() { if (!IsDisposed) _canvas.Invalidate(); }
 }
