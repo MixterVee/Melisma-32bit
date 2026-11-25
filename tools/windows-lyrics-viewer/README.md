@@ -1,4 +1,39 @@
-# Melisma Universal — Windows v0.5.1 (test build)
+# Melisma Universal — Windows v0.5.2 (test build)
+
+## New: Living background after sustained inactivity
+
+Melisma temporarily switches its full-window background to **Living** when the
+foobar2000 Bridge is no longer playing for a while. Short track-change gaps
+are ignored.
+
+- **Display settings → Background → Use Living when playback is idle** is on by default.
+- **Idle Living delay** can be selected from **10 to 15 seconds**; default is **12 seconds**.
+- Paused, stopped, or unavailable playback for at least that long starts a gentle
+  0.9-second transition into Living. Playback resuming fades back to the chosen
+  background style over 0.9 seconds.
+- Changing between songs quickly leaves the selected background untouched.
+- The saved background style, blur, and independently adjustable background/cover
+  fade settings are not changed.
+- The Lyrics/Cinema layout, sharp album-cover panel, song metadata, synced lyrics,
+  and saved song-specific correction remain in place.
+- The laptop controller and TV share one inactivity timer.
+- Without an available image, Living displays its fallback colour field.
+- Turn the idle option off to prevent automatic background switching. The setting
+  and delay are saved in the existing display-settings.json.
+
+### First test
+
+1. Extract the v0.5.2 ZIP to a new folder. Keep v0.5.1 as a backup.
+2. Play a song in foobar2000 and choose Background = Black or Cover art.
+3. Enable idle Living and set its delay to 12 seconds.
+4. Pause playback for 5 seconds: the chosen background should stay.
+5. Keep paused beyond 12 seconds: the background should fade to Living.
+6. Resume: the chosen background should return, with the Cinema cover and lyrics intact.
+7. Stop playback (or close foobar2000) long enough to trigger Living again.
+8. Disable the idle feature to verify that it no longer switches; restart to
+   confirm settings and timing corrections remain saved.
+
+## Retained from v0.5.1
 
 ## New in v0.5.1 — independent Cinema cover-art transition
 
