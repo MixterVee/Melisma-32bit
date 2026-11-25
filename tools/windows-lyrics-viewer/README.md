@@ -1,4 +1,57 @@
-# Melisma Universal — Windows v0.6.7 (test build)
+# Melisma Universal — Windows v0.6.8 (test build)
+
+## More fluid active-word growth (no abrupt pop)
+
+The user confirmed v0.6.7 lyrics load much faster but said the
+Android-style word growth still looks unnatural: it pops up too quickly.
+
+The prior effect completed a **full 8.5% zoom in 60% of each word's
+duration**. On a 150ms syllable this meant reaching full scale in about
+90ms, which is visually abrupt—especially when Windows painted at only
+~18 frames per second.
+
+v0.6.8 makes four targeted improvements without touching the working
+Foobar2000 clock, word timing, provider lookup, artwork or Cinema layout:
+
+- **Duration-aware growth:** syllables lasting 120ms enlarge by only
+  approximately 1%, a 300ms word grows around 1.7%, and a long
+  900ms note grows up to about 5.8%. Fast words no longer jump by 8.5%.
+- **Smooth in/out motion:** a sine-squared envelope starts and ends with
+  zero velocity, so words gradually rise and settle instead of abruptly
+  snapping back. The effect remains tied to the real source timestamps,
+  so pause and seek still freeze/restore the right frame.
+- **No mid-word activation:** the prior renderer waited until 70% of
+  the line's transition had completed before replacing the normal word
+  with the animated version. That could switch the display mid-syllable.
+  Word animation now begins at the timed onset, with scale initially
+  exactly 1.0, and maintains the single-render fix from v0.6.7.
+- **Smoother display refresh:** controller preview and second-screen
+  TV animation intervals reduced from 55ms (~18 fps) to 25ms
+  (~40 fps). Actual Windows frame delivery depends on GPU/CPU load.
+  The Foobar2000 timestamp remains authoritative.
+
+**Display… → Lyrics display → Enlarge sung word (Android style)**
+is still on by default. Switching it off preserves cyan word timing.
+
+### Test
+
+1. Extract v0.6.8 into a separate folder; keep v0.6.7 as backup.
+2. Play **Edamame** in Foobar2000 and watch the short sung words.
+   They should feel like a subtle, gentle swell instead of popping out.
+3. Compare a longer held syllable; it should visibly grow a little
+   more and ease back softly.
+4. Pause halfway through a word, resume and seek backward. The
+   enlargement should stay tied to the same lyric progress.
+5. Confirm no doubled letters, exact cyan highlighting, fast lyric
+   loading and instant cached replays remain intact. Check the TV
+   second screen, Cinema art and full-screen Living animation.
+
+The next project milestone is selectable animation styles (for
+example classic bouncing ball, underline glide and glow). They should
+build on this stable motion/word-position baseline, not restore the
+fast-popping effect.
+
+## Retained from v0.6.7
 
 ## Fix: doubled word animation and slow lyric appearance
 
