@@ -1268,13 +1268,13 @@ internal sealed class LyricsCanvas : Control
                 new VisualRow(text[bestNextStart..], bestNextStart)];
     }
 
-    private static TextLayout MakeLayout(Graphics g, string text,
+    private TextLayout MakeLayout(Graphics g, string text,
         float preferredSize, bool bold, float width)
     {
         float size = Math.Max(10f, preferredSize);
         while (true)
         {
-            var font = new Font("Segoe UI", size,
+            var font = new Font(_display.FontFamily, size,
                 bold ? FontStyle.Bold : FontStyle.Regular, GraphicsUnit.Point);
             var rows = Wrap(g, text, font, width);
             bool allFit = rows.All(row => TextWidth(g, row.Text, font) <= width);
@@ -1296,7 +1296,7 @@ internal sealed class LyricsCanvas : Control
         float points, Color color, bool bold)
     {
         using var layout = MakeLayout(g, text, points, bold,
-            Math.Max(1f, Width - 2f * SidePadding));
+            Math.Max(1f, LyricsArea.Width - 2f * SidePadding));
         DrawLayout(g, layout, y, color, null, 1f);
     }
 
@@ -1306,8 +1306,10 @@ internal sealed class LyricsCanvas : Control
     {
         // The row breaks and reserved height remain fixed. Only the actual
         // font size/color animate, so upcoming lyrics are already wrapped.
-        float scale = 0.67f + 0.33f * Math.Clamp(emphasis, 0f, 1f);
-        using var displayFont = new Font("Segoe UI",
+        float scale = _display.SimpleMode
+            ? 0.84f + 0.16f * Math.Clamp(emphasis, 0f, 1f)
+            : 0.67f + 0.33f * Math.Clamp(emphasis, 0f, 1f);
+        using var displayFont = new Font(_display.FontFamily,
             layout.Font.SizeInPoints * scale,
             emphasis >= 0.5f ? FontStyle.Bold : FontStyle.Regular,
             GraphicsUnit.Point);
@@ -1324,12 +1326,20 @@ internal sealed class LyricsCanvas : Control
         };
 
         float top = centerY - layout.TotalHeight / 2f;
-        float width = Math.Max(1f, Width - 2f * SidePadding);
+        float width = Math.Max(1f, LyricsArea.Width - 2f * SidePadding);
         for (int i = 0; i < layout.Rows.Count; i++)
         {
             var row = layout.Rows[i];
-            var rect = new RectangleF(SidePadding, top + i * layout.RowHeight,
-                width, layout.RowHeight);
+            var rect = new RectangleF(LyricsArea.Left + SidePadding,
+                top + i * layout.RowHeight, width, layout.RowHeight);
+            if (_display.DepthBlur && emphasis < 0.5f)
+            {
+                var shadowRect = new RectangleF(rect.X + 1.5f, rect.Y + 1.5f,
+                    rect.Width, rect.Height);
+                using var shadow = new SolidBrush(Color.FromArgb(
+                    (int)(45f * opacity), 172, 190, 216));
+                g.DrawString(row.Text, displayFont, shadow, shadowRect, format);
+            }
             g.DrawString(row.Text, displayFont, normalBrush, rect, format);
 
             if (!playedCharacters.HasValue) continue;
@@ -1361,7 +1371,8 @@ internal sealed class KaraokeDisplay : Form
     private readonly LyricsCanvas _canvas;
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 55 };
 
-    public KaraokeDisplay(Screen screen, Func<LyricFrame> frame, AlbumArtworkState artwork)
+    public KaraokeDisplay(Screen screen, Func<LyricFrame> frame, AlbumArtworkState artwork,
+        MelismaDisplaySettings display)
     {
         Text = "Melisma Karaoke · TV display";
         FormBorderStyle = FormBorderStyle.None;
@@ -1369,7 +1380,7 @@ internal sealed class KaraokeDisplay : Form
         Bounds = screen.Bounds;
         BackColor = Color.Black;
         KeyPreview = true;
-        _canvas = new LyricsCanvas(frame, artwork) { Dock = DockStyle.Fill };
+        _canvas = new LyricsCanvas(frame, artwork, display) { Dock = DockStyle.Fill };
         Controls.Add(_canvas);
         KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) Close(); };
         _timer.Tick += (_, _) => _canvas.Invalidate();
