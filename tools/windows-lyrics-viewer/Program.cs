@@ -35,6 +35,7 @@ internal sealed class LyricsController : Form
 {
     private readonly NativeTimelineReader _bridge = new();
     private readonly SongOffsetStore _offsets = new();
+    private readonly LyricsResultCache _lyricCache = new();
     private readonly AlbumArtworkState _artwork = new();
     private readonly MelismaDisplaySettings _display = MelismaDisplaySettings.Load();
     private readonly PlaybackIdleBackground _idleBackground = new();
@@ -668,6 +669,30 @@ internal sealed class LyricsController : Form
         string? shownSource = null;
         string? shownName = null;
         int shownCount = -1;
+        LyricsResultCache.Entry? cached = null;
+
+        // Like Android's already-cached path, the same song can show lyrics
+        // immediately when replayed, even if lyric providers are slow.
+        // Continue searching so genuinely improved timing can replace an
+        // outdated cached source. Manual "Find lyrics" always refreshes.
+        if (!requested && _lyricCache.TryLoad(title, artist, album,
+                duration, out cached) && cached != null)
+        {
+            _lines.Clear();
+            _lines.AddRange(cached.Lines);
+            _source = cached.SourceId == "lrcred" ? "lrc.red" :
+                cached.SourceName;
+            firstDisplayMs = 0;
+            shownSource = "cache:" + cached.SourceId;
+            shownName = cached.SourceName;
+            shownCount = cached.Lines.Count;
+            _statusLabel.Text = cached.WordTimed
+                ? "Word-synced · Cached " + cached.SourceName
+                : "Line-synced · Cached " + cached.SourceName;
+            _notice = $"{cached.Lines.Count} saved lyrics ready · checking for updates";
+            _preview.Invalidate();
+            _projection?.Redraw();
+        }
 
         bool CurrentSearch() =>
             !token.IsCancellationRequested && !IsDisposed &&
@@ -679,7 +704,12 @@ internal sealed class LyricsController : Form
             var best = result.Best;
             long elapsed = Math.Max(0, Environment.TickCount64 - searchStartedTick);
             bool hasLines = best is { Lines: { Count: > 0 } };
-            bool newResult = hasLines && (
+            // Never replace a good cached word-synced song with a slower
+            // provider's incomplete/line-only first result. Only upgrade
+            // when the fresh response is genuinely as good or better.
+            bool accepted = hasLines &&
+                (cached == null || LyricsResultCache.ShouldReplace(cached, best!));
+            bool newResult = accepted && (
                 shownSource != best!.Id || shownName != best.Name ||
                 shownCount != best.Total || _lines.Count == 0);
 
@@ -690,6 +720,7 @@ internal sealed class LyricsController : Form
                 // real word timing, or fill a missing first verse.
                 _lines.Clear();
                 _lines.AddRange(best!.Lines!);
+                cached = null;
                 shownSource = best.Id;
                 shownName = best.Name;
                 shownCount = best.Total;
@@ -708,11 +739,14 @@ internal sealed class LyricsController : Form
                 $"Providers completed: {result.All.Count}/5\n\n" +
                 "Sources checked:\n" + result.Report +
                 "\n\nSelected: " + (best?.Name ?? "No timed lyrics yet") +
+                (cached != null
+                    ? "\nDisplayed immediately from cached source: " + cached.SourceName
+                    : "") +
                 "\n\nOnly genuine source timestamps are used.";
 
             if (!hasLines)
             {
-                if (complete)
+                if (complete && cached == null)
                 {
                     _source = "No synchronized lyrics found";
                     _statusLabel.Text = "No timed lyrics found · Sources…";
@@ -720,7 +754,7 @@ internal sealed class LyricsController : Form
                 }
                 return;
             }
-            if (newResult || complete)
+            if ((newResult || complete) && cached == null)
             {
                 bool introAdded = best!.Name.Contains("+ LRCLIB intro",
                     StringComparison.Ordinal);
@@ -756,6 +790,12 @@ internal sealed class LyricsController : Form
                     return synced == null ? null : LrcParser.Parse(synced);
                 }, token, partial => Present(partial, complete: false));
             Present(lookup, complete: true);
+            // Store only the final selected successful result, never
+            // provisional incomplete data or failed/network-timeout states.
+            if (CurrentSearch() && cached == null &&
+                lookup.Best is { Lines: { Count: > 0 } } final)
+                _lyricCache.Save(title, artist, album, duration, final.Id,
+                    final.Name, final.Lines);
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
