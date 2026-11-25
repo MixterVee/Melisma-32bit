@@ -1,3 +1,13 @@
+# Foobar2000 Bridge v0.3 — track-specific front cover
+
+The bridge now publishes actual front-cover art from Foobar2000's centralized now-playing album-art service via read-only shared memory `Local\\MelismaFoobarArtwork_v1`. The snapshot has a track generation, a sequence guard, a loading/has-cover/no-cover state and up to 8MB of image bytes. The existing playback and metadata mappings remain untouched.
+
+**Installation:** In Foobar2000 x64, open File → Preferences → Components → Install, select the new `foo_melisma_bridge.fb2k-component` from the v0.3 GitHub Actions artifact and restart Foobar2000. Use it with Melisma Windows v0.6.13 or later.
+
+No network access, path exposure, cover modifications, or audio interception. This is a one-way read-only feed of the current album image. Native Foobar artwork is given priority over Windows media-session artwork to avoid stale images from previous songs.
+
+---
+
 # Melisma Foobar2000 Bridge v0.2 — read-only playback and song metadata
 
 Foobar2000's Windows media-session API can omit the artist, album and useful duration while the native v0.1 timing bridge works. The Windows lyrics viewer then searches for incomplete song metadata and produces false misses or plain lyrics.
