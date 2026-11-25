@@ -1,3 +1,29 @@
+# Melisma Universal — Windows v0.6.14 (Android lyric layout parity test)
+
+## Source-based comparison (Android TV vs Windows)
+
+User videos **2026-11-25_17h46_23.mp4 (Windows)** and **2026-11-25_17h59_28.mp4 (Android)** show that Windows' interlude dots were centered *below* the upcoming lyrics instead of being in a separate, left-aligned row **before** the next lyric. Windows also made inactive text only 67% of full-size and enlarged the entire active line, shifting its left edge instead of gently enlarging each sung word.
+
+Reviewed Android's implementation, including `Lyrics.withInterludes`, `LyricsLayout.interludeLayout`, `LyricsRenderer.drawInterlude`, `LyricsAnim.wordScale`, and `core.Spring`. This build ports their key behaviors:
+
+- **Interlude rows in the actual scrolling layout:** An intro or >=3-second break reserves a stable dot row before the next vocal. The three dots are left-aligned with the words, NOT horizontally centered or placed below upcoming text.
+- **Android-staggered three dots:** Each dot uses its own one-third segment of the real instrumental gap; last dot ends 500ms before the next vocal. Shape, opacity, size, lift and time smoothing reference Android's source; no independent repeating 1.8-second spinner during a song.
+- **Scroll focus around 42% of canvas height:** Dot row takes the focus during an interlude, smoothly transitioning to the next vocal line. Upcoming text remains visible and readable throughout, without premature cyan highlighting.
+- **Stable real font size:** All lyric lines use the preplanned full-size font in a consistent left-aligned column, matching Android's lead-line layout. Windows no longer renders inactive lines at only 67% and scales entire active text blocks (the sideways-moving effect).
+- **Smooth center-anchored active word zoom:** The sung word is masked from normal rendering and re-rendered once with Android's word-scale spline and damped spring. The word expands around its measured own centre, rather than moving the whole line left. Cyan sweep still obeys original Foobar and word timestamps.
+- **Prior fixes preserved:** v0.6.13 embedded artwork priority (Foobar bridge v0.3), track-safe artwork, configurable cover transitions, v0.6.12 early lyric fade, improved provider selection and adaptive CPU rendering. No new Foobar bridge installation required.
+
+### Manual acceptance
+
+1. Start **.Ready For It — Taylor Swift** and watch the Android and Windows versions side by side. During an intro/gap, three dots should appear **before** the forthcoming lyric, close to the left edge of the lyric text column; upcoming lyrics remain visible beneath.
+2. Watch how the active words grow: a steady left text edge, full-size inactive words, and spring-driven enlargement of only the active word. Test with long sustained words and short syllables.
+3. Check a long instrumental pause, seek forward/backward, pause/resume, and the second-screen display.
+4. Verify the per-track embedded cover remains correct, and compare CPU usage with v0.6.13.
+
+This is a CI test build, so real Windows presentation still needs visual confirmation.
+
+---
+
 # Melisma Universal Windows v0.6.13 — correct Foobar artwork (test build)
 
 ## Why this update exists
