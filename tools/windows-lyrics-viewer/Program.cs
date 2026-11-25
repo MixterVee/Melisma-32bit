@@ -792,11 +792,11 @@ internal sealed class PlaybackIdleBackground
             now - _notPlayingSince >=
             Math.Clamp(settings.IdleLivingDelaySeconds, 10, 15) * 1000L;
         float target = settings.IdleLivingEnabled && idleLongEnough ? 1f : 0f;
-        // A full-screen screensaver fades in over 1.5 seconds. When music
-        // returns, give the lyrics/artwork time to update underneath the
-        // screen before slowly revealing everything again.
-        float transitionMs = target > LivingMix ? 1500f :
-            Math.Clamp(settings.IdleReturnFadeSeconds, 2f, 12f) * 1000f;
+        // One user-selected fade time applies in both directions. Underlying
+        // lyrics and artwork keep updating even when fully covered, so the
+        // correct live content is revealed smoothly when playback resumes.
+        float transitionMs = Math.Clamp(settings.IdleLivingFadeSeconds,
+            2f, 12f) * 1000f;
         float step = deltaMs / transitionMs;
         LivingMix = Math.Clamp(LivingMix +
             (target > LivingMix ? step : target < LivingMix ? -step : 0f),
