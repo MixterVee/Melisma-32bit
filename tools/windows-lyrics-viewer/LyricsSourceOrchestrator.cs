@@ -113,7 +113,7 @@ internal static class LyricsSourceOrchestrator
         // service finished. Publish the best available result as soon as any
         // successful provider completes, while still awaiting better timing.
         var pending = providerTasks.ToList();
-        var completed = new List<Answer>(jobs.Length);
+        var completed = new List<Answer>(pending.Count);
         while (pending.Count > 0)
         {
             token.ThrowIfCancellationRequested();
