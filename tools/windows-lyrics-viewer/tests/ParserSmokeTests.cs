@@ -158,6 +158,7 @@ internal static class ParserSmokeTests
         AdditionalSourceTests.Run(Check);
         WordSpacingTests.Run(Check);
         ActiveWordPulseTests.Run(Check);
+        ProviderProgressTests.RunAsync(Check).GetAwaiter().GetResult();
         Console.WriteLine($"PASS: {_passed} lyric parser checks.");
     }
 }
