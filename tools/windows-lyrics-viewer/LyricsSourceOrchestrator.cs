@@ -80,7 +80,7 @@ internal static class LyricsSourceOrchestrator
     internal static async Task<Lookup> QueryAsync(
         HttpClient http, string title, string artist, string album, long durationMs,
         Func<CancellationToken, Task<List<LrcLine>?>> lineFallback,
-        CancellationToken token)
+        CancellationToken token, Action<Lookup>? onProgress = null)
     {
         // Android's provider order is a tie-breaker, not a reason to let
         // the first line-timed provider suppress a word-timed result.
@@ -102,8 +102,32 @@ internal static class LyricsSourceOrchestrator
             }, token),
             Query("lrclib", "LRCLIB", lineFallback, token),
         };
-        var all = await Task.WhenAll(jobs);
-        token.ThrowIfCancellationRequested();
+        // v0.6.6 used Task.WhenAll here and withheld EVERY lyric line
+        // until the slowest service completed or timed out. A user could
+        // hear 15-20 seconds of vocals while usable LRCLIB or TTML results
+        // were already available. Publish the best available result on
+        // EACH successful completion, then continue checking for better
+        // word timing in the background of this same awaited lookup.
+        var pending = jobs.ToList();
+        var completed = new List<Answer>(jobs.Length);
+        while (pending.Count > 0)
+        {
+            token.ThrowIfCancellationRequested();
+            var finishedTask = await Task.WhenAny(pending);
+            pending.Remove(finishedTask);
+            var result = await finishedTask;
+            completed.Add(result);
+            token.ThrowIfCancellationRequested();
+            if (result.Total > 0)
+                onProgress?.Invoke(SelectBest(completed));
+        }
+        return SelectBest(completed);
+    }
+
+    internal static Lookup SelectBest(IReadOnlyList<Answer> all)
+    {
+        if (all.Count == 0)
+            return new Lookup(null, all, "No providers have completed.");
 
         // Android's SOURCE order: lrc.red before AMLL; user's local lyrics
         // are handled before network lookup in the controller.
