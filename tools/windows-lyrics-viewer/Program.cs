@@ -1338,9 +1338,9 @@ internal sealed class AlbumArtworkState : IDisposable
     public Image? Previous => _previous;
     // Outgoing art is permitted ONLY while its configured fade is active.
     // Previously _previous survived indefinitely when the new song had no art.
-    public Image? VisiblePrevious => Progress < 1f || PanelProgress < 1f
-        ? _previous : null;
-    public Image? VisibleImage => _current ?? VisiblePrevious;
+    public Image? VisiblePrevious => PanelProgress < 1f ? _previous : null;
+    public Image? VisibleBackground => _current ??
+        (Progress < 1f ? _previous : null);
     public Image? Current => _current;
     public float Progress => ProgressFor(FadeSeconds);
     public float PanelProgress => ProgressFor(CoverFadeSeconds);
@@ -1797,7 +1797,7 @@ internal sealed class LyricsCanvas : Control
     private void DrawIdleTakeover(Graphics g)
     {
         if (_idleBackground.LivingMix <= 0.001f) return;
-        var art = _artwork.Enabled ? _artwork.VisibleImage : null;
+        var art = _artwork.Enabled ? _artwork.VisibleBackground : null;
         _fluidLiving.Draw(g, ClientRectangle, art, _idleBackground.LivingMix);
     }
 
@@ -1870,7 +1870,7 @@ internal sealed class LyricsCanvas : Control
 
         if (style == MelismaBackgroundStyle.Living)
         {
-            var livingArt = _artwork.Enabled ? _artwork.VisibleImage : null;
+            var livingArt = _artwork.Enabled ? _artwork.VisibleBackground : null;
             _fluidLiving.Draw(g, ClientRectangle, livingArt, layerOpacity);
             // Darken the regular Living BACKGROUND for readable lyrics.
             // The idle screensaver is intentionally shown without this scrim.
