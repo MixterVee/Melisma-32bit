@@ -35,6 +35,7 @@ internal sealed class LyricsController : Form
 {
     private readonly NativeTimelineReader _bridge = new();
     private readonly SongOffsetStore _offsets = new();
+    private readonly LyricsResultCache _lyricCache = new();
     private readonly AlbumArtworkState _artwork = new();
     private readonly MelismaDisplaySettings _display = MelismaDisplaySettings.Load();
     private readonly PlaybackIdleBackground _idleBackground = new();
@@ -85,7 +86,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.6";
+        Text = "Melisma Universal · Windows v0.6.7";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -663,12 +664,123 @@ internal sealed class LyricsController : Form
         _lookupReport = $"Song: {title}\nArtist: {artist}\nAlbum: {album}\n" +
             $"Foobar bridge duration: {duration / 1000d:F1}s\n" +
             "Providers: checking concurrently…";
+        long searchStartedTick = Environment.TickCount64;
+        long? firstDisplayMs = null;
+        string? shownSource = null;
+        string? shownName = null;
+        int shownCount = -1;
+        LyricsResultCache.Entry? cached = null;
+
+        // Like Android's already-cached path, the same song can show lyrics
+        // immediately when replayed, even if lyric providers are slow.
+        // Continue searching so genuinely improved timing can replace an
+        // outdated cached source. Manual "Find lyrics" always refreshes.
+        if (!requested && _lyricCache.TryLoad(title, artist, album,
+                duration, out cached) && cached != null)
+        {
+            _lines.Clear();
+            _lines.AddRange(cached.Lines);
+            _source = cached.SourceId == "lrcred" ? "lrc.red" :
+                cached.SourceName;
+            firstDisplayMs = 0;
+            shownSource = "cache:" + cached.SourceId;
+            shownName = cached.SourceName;
+            shownCount = cached.Lines.Count;
+            _statusLabel.Text = cached.WordTimed
+                ? "Word-synced · Cached " + cached.SourceName
+                : "Line-synced · Cached " + cached.SourceName;
+            _notice = $"{cached.Lines.Count} saved lyrics ready · checking for updates";
+            _preview.Invalidate();
+            _projection?.Redraw();
+        }
+
+        bool CurrentSearch() =>
+            !token.IsCancellationRequested && !IsDisposed &&
+            searchFor == _loadedFor;
+
+        void Present(LyricsSourceOrchestrator.Lookup result, bool complete)
+        {
+            if (!CurrentSearch()) return;
+            var best = result.Best;
+            long elapsed = Math.Max(0, Environment.TickCount64 - searchStartedTick);
+            bool hasLines = best is { Lines: { Count: > 0 } };
+            // Never replace a good cached word-synced song with a slower
+            // provider's incomplete/line-only first result. Only upgrade
+            // when the fresh response is genuinely as good or better.
+            bool accepted = hasLines &&
+                (cached == null || LyricsResultCache.ShouldReplace(cached, best!));
+            bool newResult = accepted && (
+                shownSource != best!.Id || shownName != best.Name ||
+                shownCount != best.Total || _lines.Count == 0);
+
+            if (newResult)
+            {
+                // The first accessible provider can begin displaying lyrics
+                // immediately. A later provider may upgrade line timing to
+                // real word timing, or fill a missing first verse.
+                _lines.Clear();
+                _lines.AddRange(best!.Lines!);
+                cached = null;
+                shownSource = best.Id;
+                shownName = best.Name;
+                shownCount = best.Total;
+                firstDisplayMs ??= elapsed;
+                _preview.Invalidate();
+                _projection?.Redraw();
+            }
+
+            _lookupReport = $"Foobar2000 metadata:\n" +
+                $"Title: {title}\nArtist: {artist}\nAlbum: {album}\n" +
+                $"Duration: {duration / 1000d:F1} seconds\n\n" +
+                $"Lyric search elapsed: {elapsed / 1000d:F1} seconds\n" +
+                $"First playable lyrics displayed after: " +
+                (firstDisplayMs.HasValue ? $"{firstDisplayMs.Value / 1000d:F1} seconds"
+                                         : "not available yet") + "\n" +
+                $"Providers completed: {result.All.Count}/5\n\n" +
+                "Sources checked:\n" + result.Report +
+                "\n\nSelected: " + (best?.Name ?? "No timed lyrics yet") +
+                (cached != null
+                    ? "\nDisplayed immediately from cached source: " + cached.SourceName
+                    : "") +
+                "\n\nOnly genuine source timestamps are used.";
+
+            if (!hasLines)
+            {
+                if (complete && cached == null)
+                {
+                    _source = "No synchronized lyrics found";
+                    _statusLabel.Text = "No timed lyrics found · Sources…";
+                    _notice = "No timed lyrics from these sources. See Sources…";
+                }
+                return;
+            }
+            if ((newResult || complete) && cached == null)
+            {
+                bool introAdded = best!.Name.Contains("+ LRCLIB intro",
+                    StringComparison.Ordinal);
+                _source = best.Id == "lrcred" ? (introAdded
+                    ? "lrc.red + LRCLIB intro" : "lrc.red") : best.Name;
+                string timing = introAdded
+                    ? "Word-synced + line-timed intro"
+                    : best.WordTimed ? "Word-synced" : "Line-synced";
+                _statusLabel.Text = $"{timing} · {best.Name}" +
+                    (complete ? "" : " · refining");
+                _notice = !complete
+                    ? $"{best.Total} synchronized lines ready · refining sources"
+                    : introAdded
+                        ? $"{best.Total} lines · Opening line-timed, later word-timed"
+                        : best.WordTimed
+                            ? $"{best.Timed} word-timed lines · Pause or seek to test"
+                            : $"{best.Total} line-timed lines · Sources… for details";
+            }
+        }
+
         try
         {
-            // Android Melisma's LyricsRepository asks enabled providers in
-            // parallel, chooses genuine word timing first, and retains failure
-            // reasons per source. Never make a volunteer provider's timeout
-            // prevent an unrelated provider's successful answer.
+            // Stream the first valid provider result instead of waiting for
+            // every service to finish or hit its 12-second timeout.
+            // This fixes the 15–20s delayed lyric appearance on track change
+            // while still allowing an improved word-timed source to arrive.
             var lookup = await LyricsSourceOrchestrator.QueryAsync(Client,
                 title, artist, album, duration,
                 async ct =>
@@ -676,41 +788,14 @@ internal sealed class LyricsController : Form
                     var synced = await Lrclib.FindAsync(
                         title, artist, album, duration, ct);
                     return synced == null ? null : LrcParser.Parse(synced);
-                }, token);
-            if (token.IsCancellationRequested || IsDisposed ||
-                searchFor != _loadedFor) return;
-
-            _lookupReport = $"Foobar2000 metadata:\n" +
-                $"Title: {title}\nArtist: {artist}\nAlbum: {album}\n" +
-                $"Duration: {duration / 1000d:F1} seconds\n\n" +
-                "Sources checked (parallel, 12s each):\n" + lookup.Report +
-                "\n\nSelected: " + (lookup.Best?.Name ?? "No timed lyrics available") +
-                "\n\nOnly genuine source timestamps are used. " +
-                "A provider can return no match or be unreachable.";
-            if (lookup.Best is not { Lines: { Count: > 0 } })
-            {
-                _source = "No synchronized lyrics found";
-                _statusLabel.Text = "No timed lyrics found · Open Source details…";
-                _notice = "No lyrics available from these sources. See Source details…";
-                return;
-            }
-
-            var best = lookup.Best;
-            _lines.Clear();
-            _lines.AddRange(best.Lines);
-            bool introAdded = best.Name.Contains("+ LRCLIB intro",
-                StringComparison.Ordinal);
-            _source = best.Id == "lrcred" ? (introAdded
-                ? "lrc.red + LRCLIB intro" : "lrc.red") : best.Name;
-            string timing = introAdded
-                ? "Word-synced + line-timed intro"
-                : best.WordTimed ? "Word-synced" : "Line-synced";
-            _statusLabel.Text = $"{timing} · {best.Name}";
-            _notice = introAdded
-                ? $"{best.Total} lines · Opening verse line-timed, later words synchronized"
-                : best.WordTimed
-                    ? $"{best.Timed} word-timed lines · Pause or seek to test"
-                    : $"{best.Total} line-timed lines · Sources… for details";
+                }, token, partial => Present(partial, complete: false));
+            Present(lookup, complete: true);
+            // Store only the final selected successful result, never
+            // provisional incomplete data or failed/network-timeout states.
+            if (CurrentSearch() && cached == null &&
+                lookup.Best is { Lines: { Count: > 0 } } final)
+                _lyricCache.Save(title, artist, album, duration, final.Id,
+                    final.Name, final.Lines);
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
@@ -730,7 +815,7 @@ internal sealed class LyricsController : Form
     {
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd(
-            "MelismaWindows/0.6.4 (Windows; https://github.com/MixterVee/Melisma-32bit)");
+            "MelismaWindows/0.6.7 (Windows; https://github.com/MixterVee/Melisma-32bit)");
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         return client;
     }
@@ -1211,15 +1296,20 @@ internal sealed class LyricsCanvas : Control
                 }
                 playedCharacters = Math.Clamp(count, 0f, line.Text.Length);
             }
+            // Paint the animated word ONCE. v0.6.6 first painted the
+            // complete line and then painted the larger word over itself,
+            // creating the visibly doubled/overlapping letters in Edamame.
+            // Exclude the active word from the normal row paint, then
+            // render that one word at its measured position.
+            AnimatedWord? animated = _display.GrowActiveWord &&
+                index == active && emphasis >= 0.70f
+                    ? LocateAnimatedWord(layout, line, frame.LyricPositionMs)
+                    : null;
             DrawLayout(g, layout, y, playedCharacters.HasValue ? Other : color,
-                playedCharacters, emphasis, edgeOpacity);
-            // Android-inspired active syllable/word emphasis. Paint just the
-            // current timed word as a small, gently growing overlay. Never
-            // resize the underlying line or recalculate its row positions.
-            if (_display.GrowActiveWord && index == active &&
-                emphasis >= 0.70f && line.Words is { Count: > 0 })
+                playedCharacters, emphasis, edgeOpacity, animated);
+            if (animated.HasValue)
                 DrawActiveWordOverlay(g, layout, y, line,
-                    frame.LyricPositionMs, emphasis, edgeOpacity);
+                    animated.Value, emphasis, edgeOpacity);
         }
         g.Restore(textClip);
         DrawSourceCredit(g, frame);
@@ -1698,69 +1788,78 @@ internal sealed class LyricsCanvas : Control
         DrawLayout(g, layout, y, color, null, 1f);
     }
 
-    private void DrawActiveWordOverlay(Graphics g, TextLayout layout,
-        float centerY, LrcLine line, long playbackMs,
-        float emphasis, float opacity)
+    private readonly record struct AnimatedWord(
+        int RowIndex, int Start, int End, int WordIndex,
+        ActiveWordPulse.Focus Pulse);
+
+    private AnimatedWord? LocateAnimatedWord(
+        TextLayout layout, LrcLine line, long playbackMs)
     {
         var focus = ActiveWordPulse.At(line.Words, playbackMs,
             _display.SimpleMode);
         if (!focus.HasValue || focus.Value.Scale < 1.006f ||
-            line.Words is not { Count: > 0 } words) return;
-
-        // Character boundaries must agree EXACTLY with the source text.
-        // Never overlay a word in the wrong place because provider spacing
-        // differed from the line's text or line wrapping changed.
-        if (string.Concat(words.Select(w => w.Text)) != line.Text)
-            return;
+            line.Words is not { Count: > 0 } words ||
+            string.Concat(words.Select(w => w.Text)) != line.Text)
+            return null;
 
         int index = focus.Value.WordIndex;
         string rawWord = words[index].Text;
-        string wordText = rawWord.Trim();
+        string visible = rawWord.Trim();
+        if (visible.Length == 0) return null;
+
+        int prefix = 0;
+        for (int i = 0; i < index; i++) prefix += words[i].Text.Length;
+        int start = prefix + (rawWord.Length - rawWord.TrimStart().Length);
+        int end = start + visible.Length;
+        for (int row = 0; row < layout.Rows.Count; row++)
+        {
+            var visual = layout.Rows[row];
+            if (start >= visual.Start && end <= visual.Start + visual.Text.Length)
+                return new AnimatedWord(row, start, end, index, focus.Value);
+        }
+        return null;
+    }
+
+    private void DrawActiveWordOverlay(Graphics g, TextLayout layout,
+        float centerY, LrcLine line, AnimatedWord active,
+        float emphasis, float opacity)
+    {
+        if (line.Words is not { Count: > 0 } words) return;
+        string wordText = words[active.WordIndex].Text.Trim();
         if (wordText.Length == 0) return;
-
-        int preceding = 0;
-        for (int i = 0; i < index; i++) preceding += words[i].Text.Length;
-        int wordStart = preceding + (rawWord.Length - rawWord.TrimStart().Length);
-        int wordEnd = wordStart + wordText.Length;
-
-        // The regular line renderer already keeps wraps stable. Only overlay
-        // a fully contained word within one visual row. When a very long
-        // word itself crosses rows, leave its cyan fill unmodified.
-        var visualRow = layout.Rows.FirstOrDefault(row =>
-            wordStart >= row.Start && wordEnd <= row.Start + row.Text.Length);
-        if (visualRow == null) return;
+        var visualRow = layout.Rows[active.RowIndex];
 
         float fontFactor = _display.SimpleMode
             ? 0.84f + 0.16f * Math.Clamp(emphasis, 0f, 1f)
             : 0.67f + 0.33f * Math.Clamp(emphasis, 0f, 1f);
-
         using var baseFont = new Font(_display.FontFamily,
             layout.Font.SizeInPoints * fontFactor,
             emphasis >= 0.5f ? FontStyle.Bold : FontStyle.Regular,
             GraphicsUnit.Point);
         using var grownFont = new Font(_display.FontFamily,
-            baseFont.SizeInPoints * focus.Value.Scale,
+            baseFont.SizeInPoints * active.Pulse.Scale,
             baseFont.Style, GraphicsUnit.Point);
 
         float top = centerY - layout.TotalHeight / 2f;
-        int rowIndex = layout.Rows.IndexOf(visualRow);
-        if (rowIndex < 0) return;
         float width = Math.Max(1f, LyricsArea.Width - 2f * SidePadding);
         var rect = new RectangleF(LyricsArea.Left + SidePadding,
-            top + rowIndex * layout.RowHeight, width, layout.RowHeight);
+            top + active.RowIndex * layout.RowHeight, width, layout.RowHeight);
 
-        float entireWidth = TextWidth(g, visualRow.Text, baseFont);
-        float leadingWidth = TextWidth(g,
-            visualRow.Text[..(wordStart - visualRow.Start)], baseFont);
-        float originalWidth = TextWidth(g, wordText, baseFont);
-        float wordCenterX = rect.Left + (rect.Width - entireWidth) / 2f +
-            leadingWidth + originalWidth / 2f;
-        float largerWidth = TextWidth(g, wordText, grownFont);
-
-        float lifted = focus.Value.LiftEm * baseFont.GetHeight(g);
+        // Compute the word boundaries from the SAME measured full row that
+        // the normal lyric renderer uses, not from an independently measured
+        // word's width; otherwise kerning errors make the word drift.
+        int begin = active.Start - visualRow.Start;
+        int finish = active.End - visualRow.Start;
+        float fullWidth = TextWidth(g, visualRow.Text, baseFont);
+        float beforeWidth = TextWidth(g, visualRow.Text[..begin], baseFont);
+        float throughWidth = TextWidth(g, visualRow.Text[..finish], baseFont);
+        float originalLeft = rect.Left + (rect.Width - fullWidth) / 2f;
+        float wordCenterX = originalLeft + (beforeWidth + throughWidth) / 2f;
+        float grownWidth = TextWidth(g, wordText, grownFont);
+        float lifted = active.Pulse.LiftEm * baseFont.GetHeight(g);
         var grownRect = new RectangleF(
-            wordCenterX - largerWidth / 2f, rect.Top - lifted,
-            largerWidth + 8f, rect.Height + 2f);
+            wordCenterX - grownWidth / 2f, rect.Top - lifted,
+            grownWidth + 5f, rect.Height + 2f);
 
         using var typographic = new StringFormat(
             StringFormat.GenericTypographic)
@@ -1771,30 +1870,28 @@ internal sealed class LyricsCanvas : Control
         };
         opacity = Math.Clamp(opacity, 0f, 1f);
         using var shadow = new SolidBrush(Color.FromArgb(
-            (int)(115f * opacity), 5, 9, 18));
+            (int)(90f * opacity), 5, 9, 18));
         using var resting = new SolidBrush(Color.FromArgb(
             (int)(230f * opacity), Other));
         using var singing = new SolidBrush(Color.FromArgb(
             (int)(255f * opacity), Highlight));
 
+        // The full baseline word has been masked out in DrawLayout, so
+        // there is exactly one rendered copy of the active word.
         var shadowRect = grownRect;
-        shadowRect.Offset(0.6f, 1.0f);
+        shadowRect.Offset(0.5f, 0.8f);
         g.DrawString(wordText, grownFont, shadow, shadowRect, typographic);
         g.DrawString(wordText, grownFont, resting, grownRect, typographic);
 
-        // Retain the existing cyan fill semantics on the enlarged glyph.
-        // For actual end-timed syllables, scale and fill use the same
-        // timestamp-based progress. For onset-only lyrics, cyan snaps
-        // at the provided onset just like the base line.
         float litFraction = _display.SmoothWordFill &&
-            words[index].EndMs > words[index].AtMs
-                ? focus.Value.Progress : 1f;
+            words[active.WordIndex].EndMs > words[active.WordIndex].AtMs
+                ? active.Pulse.Progress : 1f;
         if (litFraction > 0f)
         {
             var saved = g.Save();
             g.SetClip(new RectangleF(grownRect.Left - 1f,
                 grownRect.Top - 2f,
-                largerWidth * litFraction + 2f,
+                grownWidth * litFraction + 2f,
                 grownRect.Height + 4f), CombineMode.Intersect);
             g.DrawString(wordText, grownFont, singing, grownRect, typographic);
             g.Restore(saved);
@@ -1803,7 +1900,7 @@ internal sealed class LyricsCanvas : Control
 
     private void DrawLayout(Graphics g, TextLayout layout,
         float centerY, Color color, float? playedCharacters, float emphasis,
-        float opacity = 1f)
+        float opacity = 1f, AnimatedWord? omitWord = null)
     {
         // The row breaks and reserved height remain fixed. Only the actual
         // font size/color animate, so upcoming lyrics are already wrapped.
@@ -1833,6 +1930,32 @@ internal sealed class LyricsCanvas : Control
             var row = layout.Rows[i];
             var rect = new RectangleF(LyricsArea.Left + SidePadding,
                 top + i * layout.RowHeight, width, layout.RowHeight);
+
+            // With animated word emphasis, blank its original ink area in
+            // both base and cyan layers BEFORE painting the enlarged word.
+            // The actual backdrop stays intact; only the row's text paint
+            // is clipped. This prevents the v0.6.6 double-glyph bug.
+            GraphicsState? originalWordMask = null;
+            if (omitWord is { } omitted && omitted.RowIndex == i)
+            {
+                int startChar = omitted.Start - row.Start;
+                int endChar = omitted.End - row.Start;
+                if (startChar >= 0 && endChar <= row.Text.Length &&
+                    endChar > startChar)
+                {
+                    float rowWidth = TextWidth(g, row.Text, displayFont);
+                    float rowLeft = rect.Left + (rect.Width - rowWidth) / 2f;
+                    float xStart = TextWidth(g, row.Text[..startChar], displayFont);
+                    float xEnd = TextWidth(g, row.Text[..endChar], displayFont);
+                    originalWordMask = g.Save();
+                    g.SetClip(new RectangleF(rowLeft + xStart - 1.5f,
+                        rect.Top - 5f,
+                        Math.Max(2f, xEnd - xStart + 3f),
+                        rect.Height + 10f), CombineMode.Exclude);
+                }
+            }
+            try
+            {
             if (_display.DepthBlur && emphasis < 0.5f)
             {
                 var shadowRect = new RectangleF(rect.X + 1.5f, rect.Y + 1.5f,
@@ -1872,6 +1995,12 @@ internal sealed class LyricsCanvas : Control
                 playedWidth + 2f, rect.Height), CombineMode.Intersect);
             g.DrawString(row.Text, displayFont, playedBrush, rect, format);
             g.Restore(saved);
+            }
+            finally
+            {
+                if (originalWordMask != null)
+                    g.Restore(originalWordMask);
+            }
         }
     }
 }

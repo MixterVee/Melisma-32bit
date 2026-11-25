@@ -80,7 +80,7 @@ internal static class LyricsSourceOrchestrator
     internal static async Task<Lookup> QueryAsync(
         HttpClient http, string title, string artist, string album, long durationMs,
         Func<CancellationToken, Task<List<LrcLine>?>> lineFallback,
-        CancellationToken token)
+        CancellationToken token, Action<Lookup>? onProgress = null)
     {
         // Android's provider order is a tie-breaker, not a reason to let
         // the first line-timed provider suppress a word-timed result.
@@ -102,8 +102,36 @@ internal static class LyricsSourceOrchestrator
             }, token),
             Query("lrclib", "LRCLIB", lineFallback, token),
         };
-        var all = await Task.WhenAll(jobs);
-        token.ThrowIfCancellationRequested();
+        return await CollectAsAvailableAsync(jobs, token, onProgress);
+    }
+
+    internal static async Task<Lookup> CollectAsAvailableAsync(
+        IEnumerable<Task<Answer>> providerTasks, CancellationToken token,
+        Action<Lookup>? onProgress = null)
+    {
+        // v0.6.6 used Task.WhenAll and withheld ALL lyrics until the last
+        // service finished. Publish the best available result as soon as any
+        // successful provider completes, while still awaiting better timing.
+        var pending = providerTasks.ToList();
+        var completed = new List<Answer>(pending.Count);
+        while (pending.Count > 0)
+        {
+            token.ThrowIfCancellationRequested();
+            var finishedTask = await Task.WhenAny(pending);
+            pending.Remove(finishedTask);
+            var result = await finishedTask;
+            completed.Add(result);
+            token.ThrowIfCancellationRequested();
+            if (result.Total > 0)
+                onProgress?.Invoke(SelectBest(completed));
+        }
+        return SelectBest(completed);
+    }
+
+    internal static Lookup SelectBest(IReadOnlyList<Answer> all)
+    {
+        if (all.Count == 0)
+            return new Lookup(null, all, "No providers have completed.");
 
         // Android's SOURCE order: lrc.red before AMLL; user's local lyrics
         // are handled before network lookup in the controller.
