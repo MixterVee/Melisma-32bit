@@ -67,7 +67,8 @@ internal sealed class LyricsResultCache
             var result = JsonSerializer.Deserialize<Entry>(file);
             if (result == null || result.FormatVersion != 1 ||
                 result.SavedUtc.Kind != DateTimeKind.Utc ||
-                DateTime.UtcNow - result.SavedUtc is < TimeSpan.Zero or > MaxAge ||
+                (result.SavedUtc > DateTime.UtcNow ||
+                 DateTime.UtcNow - result.SavedUtc > MaxAge) ||
                 !string.Equals(result.Title, title, StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(result.Artist, artist, StringComparison.OrdinalIgnoreCase) ||
                 !string.Equals(result.Album, album, StringComparison.OrdinalIgnoreCase) ||
