@@ -163,6 +163,15 @@ internal static class ParserSmokeTests
         WordSpacingTests.Run(Check);
         ActiveWordPulseTests.Run(Check);
         InterludeAndArtworkTests.Run(Check);
+        Check(NativeArtworkState.Matches(2,
+                new NativeArtworkSample(2, 4, NativeArtworkState.HasCover, new byte[160])),
+            "Foobar front cover is accepted only for the current generation");
+        Check(!NativeArtworkState.Matches(3,
+                new NativeArtworkSample(2, 4, NativeArtworkState.HasCover, new byte[160])),
+            "Previous song artwork cannot become the next song's album cover");
+        Check(!NativeArtworkState.Matches(0,
+                new NativeArtworkSample(0, 2, NativeArtworkState.NoCover, null)),
+            "No uninitialized native art sample is mistaken for a current song");
         ProviderProgressTests.RunAsync(Check).GetAwaiter().GetResult();
         LyricsCacheTests.Run(Check);
         Console.WriteLine($"PASS: {_passed} lyric parser checks.");

@@ -35,6 +35,7 @@ internal sealed class LyricsController : Form
 {
     private readonly NativeTimelineReader _bridge = new();
     private readonly NativeTrackMetadataReader _nativeTags = new();
+    private readonly NativeArtworkReader _nativeArtwork = new();
     private readonly SongOffsetStore _offsets = new();
     private readonly LyricsResultCache _lyricCache = new();
     private readonly AlbumArtworkState _artwork = new();
@@ -87,11 +88,16 @@ internal sealed class LyricsController : Form
     private CancellationTokenSource? _searchCancellation;
     private int _artworkRequestId;
     private string _artworkStatus = "No track artwork loaded";
+    private long _nativeCoverRequestedAt;
+    private bool _artworkFallbackStarted;
+    private bool _manualArtworkForTrack;
+    private int _nativeCoverSequence = -1;
+    private ulong _nativeCoverGeneration;
     private static readonly HttpClient Client = CreateHttpClient();
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.12";
+        Text = "Melisma Universal · Windows v0.6.13";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -193,6 +199,7 @@ internal sealed class LyricsController : Form
         _screenTimer.Tick += (_, _) =>
         {
             ReadBridge();
+            ProcessNativeArtwork();
             _idleBackground.Update(_playerState == 1, _display);
             long now = Environment.TickCount64;
             if (now - _lastClockLabelTick >= 400)
@@ -239,6 +246,7 @@ internal sealed class LyricsController : Form
             _mediaTimer.Stop();
             _bridge.Dispose();
             _nativeTags.Dispose();
+            _nativeArtwork.Dispose();
             _searchCancellation?.Cancel();
             _searchCancellation?.Dispose();
             _projection?.Close();
@@ -292,6 +300,13 @@ internal sealed class LyricsController : Form
                 // generation change, so ask GSMTC for metadata immediately.
                 bool newTrack = native.Generation != _lastFoobarTrackGeneration;
                 _lastFoobarTrackGeneration = native.Generation;
+                if (newTrack)
+                {
+                    ++_artworkRequestId; // Invalidate previous song's image lookup.
+                    _artworkStatus = "New Foobar track · verifying cover";
+                    _nativeCoverRequestedAt = Environment.TickCount64;
+                    _manualArtworkForTrack = false;
+                }
                 _clockSource = "Foobar bridge";
                 _playerState = native.State;
                 _durationMs = native.DurationMs > 0 ? (long)native.DurationMs : 0;
@@ -382,6 +397,12 @@ internal sealed class LyricsController : Form
         string nativeTags = _nativeTags.TryRead(out var tags)
             ? $"Available · Title: '{tags.Title}' · Artist: '{tags.Artist}' · Album: '{tags.Album}'"
             : "Not available (Foobar bridge v0.2 required)";
+        string nativeCover = _nativeArtwork.TryRead(out var cover)
+            ? $"Connected · Track generation {cover.Generation}" +
+              $" · Status {(cover.State == NativeArtworkState.HasCover ? "front cover" :
+                         cover.State == NativeArtworkState.NoCover ? "no cover" : "loading")}" +
+              $" · Bytes {cover.Bytes?.Length ?? 0}"
+            : "Not available (Foobar bridge v0.3 required)";
         return "PLAYBACK TIMING (live)\n" +
             $"Playback status: {StateText()}\n" +
             $"Clock: {_clockSource}\n" +
@@ -389,6 +410,7 @@ internal sealed class LyricsController : Form
             $"Duration: {(_clockUsable ? Clock(_durationMs) : "UNAVAILABLE")}\n" +
             $"Native Foobar bridge: {native}\n" +
             $"Foobar native song tags: {nativeTags}\n" +
+            $"Foobar native artwork: {nativeCover}\n" +
             $"Windows media timeline: {(_windowsTimelineValid ? "Available" : "Not published")}\n" +
             $"Active lyric: {active}\n" +
             $"Artwork: {_artworkStatus}\n\n" +
@@ -429,10 +451,10 @@ internal sealed class LyricsController : Form
                 tags.Generation == _lastFoobarTrackGeneration &&
                 !string.IsNullOrWhiteSpace(tags.Title);
             string title = nativeCurrent ? tags.Title : (props?.Title ?? "").Trim();
-            string artist = nativeCurrent && tags.Artist.Length > 0
-                ? tags.Artist : (props?.Artist ?? "").Trim();
-            string album = nativeCurrent && tags.Album.Length > 0
-                ? tags.Album : (props?.AlbumTitle ?? "").Trim();
+            // An empty Foobar tag must NOT be filled with stale Windows
+            // metadata belonging to the previously played song.
+            string artist = nativeCurrent ? tags.Artist : (props?.Artist ?? "").Trim();
+            string album = nativeCurrent ? tags.Album : (props?.AlbumTitle ?? "").Trim();
             if (title.Length == 0)
             {
                 _notice = "Waiting for Foobar2000 song metadata.";
@@ -454,14 +476,29 @@ internal sealed class LyricsController : Form
             // Clearing here produced a blank panel followed by a new fade-IN,
             // instead of the selected old-cover-to-new-cover crossfade.
             int artworkRequest = ++_artworkRequestId;
-            _artworkStatus = "Looking for artwork";
-            // Keep the crossfade, but never show GSMTC's previous cover
-            // against metadata from the next native Foobar track.
-            var thumbnail = props != null &&
-                string.Equals((props.Title ?? "").Trim(), title,
-                    StringComparison.OrdinalIgnoreCase) ? props.Thumbnail : null;
-            _ = LoadArtworkAsync(thumbnail, title, artist, album,
-                _durationMs, _loadedFor, artworkRequest);
+            _artworkFallbackStarted = false;
+            _manualArtworkForTrack = false;
+            _nativeCoverRequestedAt = Environment.TickCount64;
+            _nativeCoverSequence = -1;
+            _nativeCoverGeneration = _lastFoobarTrackGeneration;
+
+            // Bridge v0.3 publishes the actual front cover for the Foobar
+            // track. Never prefer a GSMTC thumbnail when this interface is
+            // available: Windows can keep the PREVIOUS song's image.
+            if (_nativeArtwork.TryRead(out _))
+            {
+                _artworkStatus = "Loading front cover from Foobar2000";
+            }
+            else
+            {
+                _artworkStatus = "Legacy Windows thumbnail (bridge v0.3 unavailable)";
+                var thumbnail = props != null &&
+                    string.Equals((props.Title ?? "").Trim(), title,
+                        StringComparison.OrdinalIgnoreCase) ? props.Thumbnail : null;
+                _artworkFallbackStarted = true;
+                _ = LoadArtworkAsync(thumbnail, title, artist, album,
+                    _durationMs, _loadedFor, artworkRequest);
+            }
             _trackLabel.Text = title + "  —  " + artist;
             _offsetMs = _offsets.Read(title, artist, album);
             _offsetSaved = true;
@@ -481,6 +518,118 @@ internal sealed class LyricsController : Form
         finally { _mediaBusy = false; }
     }
 
+    private void ProcessNativeArtwork()
+    {
+        if (IsDisposed || _manualArtworkForTrack ||
+            !_nativeArtwork.TryRead(out var sample))
+            return;
+
+        if (_loadedFor.Length == 0 ||
+            _lastLoadedGeneration != _lastFoobarTrackGeneration)
+        {
+            // Art is independent of the artist/title fields: an untagged MP3
+            // can still contain an excellent front cover. Match it directly
+            // by the native playback generation rather than dropping it.
+            if (NativeArtworkState.Matches(_lastFoobarTrackGeneration, sample) &&
+                sample.State == NativeArtworkState.HasCover &&
+                sample.Bytes is { Length: > 128 } bytes &&
+                (sample.Sequence != _nativeCoverSequence ||
+                 sample.Generation != _nativeCoverGeneration))
+            {
+                _nativeCoverSequence = sample.Sequence;
+                _nativeCoverGeneration = sample.Generation;
+                ++_artworkRequestId;
+                try
+                {
+                    _artwork.Replace(bytes);
+                    _artworkStatus = "Foobar2000 front cover (untagged track)";
+                }
+                catch (Exception ex) when (ex is ArgumentException or
+                    OutOfMemoryException or InvalidOperationException)
+                {
+                    _artwork.Replace(null);
+                    _artworkStatus = "Invalid Foobar cover: " + ex.GetType().Name;
+                }
+                _preview.Invalidate();
+                _projection?.Redraw();
+                return;
+            }
+            // A completely untagged / delayed metadata track with no native
+            // cover must still stop showing the prior song indefinitely.
+            if (Environment.TickCount64 - _nativeCoverRequestedAt >= 1800 &&
+                !_artworkFallbackStarted)
+            {
+                _artworkFallbackStarted = true;
+                _artwork.Replace(null);
+                _artworkStatus = "Waiting for current track tags · old cover cleared";
+                _preview.Invalidate();
+                _projection?.Redraw();
+            }
+            return;
+        }
+
+        // The painting loop must not mistake the last track's bytes for the
+        // new track's cover while Foobar is loading its own album-art manager.
+        bool matches = NativeArtworkState.Matches(
+            _lastFoobarTrackGeneration, sample);
+        if (matches &&
+            (sample.Sequence != _nativeCoverSequence ||
+             sample.Generation != _nativeCoverGeneration))
+        {
+            _nativeCoverSequence = sample.Sequence;
+            _nativeCoverGeneration = sample.Generation;
+
+            if (sample.State == NativeArtworkState.HasCover &&
+                sample.Bytes is { Length: > 128 } data)
+            {
+                ++_artworkRequestId; // Cancel stale thumbnail/catalog results.
+                try
+                {
+                    _artwork.Replace(data);
+                    _artworkStatus = "Foobar2000 front cover (track matched)";
+                }
+                catch (Exception ex) when (ex is ArgumentException or
+                    OutOfMemoryException or InvalidOperationException)
+                {
+                    _artwork.Replace(null);
+                    _artworkStatus = "Invalid Foobar cover: " + ex.GetType().Name;
+                }
+                _preview.Invalidate();
+                _projection?.Redraw();
+                return;
+            }
+
+            if (sample.State == NativeArtworkState.NoCover)
+            {
+                StartArtworkFallback("No Foobar front cover for this song");
+                return;
+            }
+        }
+
+        // A missing/slow artwork callback must not leave a previous cover
+        // up indefinitely. The timer is a lookup deadline, not a lyric timer.
+        if (!matches || sample.State == NativeArtworkState.Pending)
+        {
+            if (Environment.TickCount64 - _nativeCoverRequestedAt >= 1800)
+                StartArtworkFallback("Foobar cover timed out");
+        }
+    }
+
+    private void StartArtworkFallback(string reason)
+    {
+        if (_artworkFallbackStarted || _loadedFor.Length == 0) return;
+        _artworkFallbackStarted = true;
+        ++_artworkRequestId;
+        // Mark this track as artless immediately. The prior cover is
+        // now only an outgoing crossfade image, not current song artwork.
+        _artwork.Replace(null);
+        _artworkStatus = reason + " · checking optional catalog";
+        _preview.Invalidate();
+        _projection?.Redraw();
+        _ = LoadArtworkAsync(null, _song, _artist, _album,
+            _durationMs, _loadedFor, _artworkRequestId);
+    }
+
     private async Task LoadArtworkAsync(IRandomAccessStreamReference? thumbnail,
         string title, string artist, string album, long durationMs,
         string trackKey, int requestId)
@@ -489,8 +638,8 @@ internal sealed class LyricsController : Form
             trackKey == _loadedFor;
         try
         {
-            // Always trust the player's own artwork first. If foobar2000
-            // publishes no thumbnail, only then try a public catalog.
+            // Legacy v0.2 or missing-embedded-art fallback only. Native v0.3
+            // artwork takes priority and can invalidate this request.
             if (thumbnail != null)
             {
                 try
@@ -525,7 +674,7 @@ internal sealed class LyricsController : Form
             if (!_display.AutoArtworkLookup)
             {
                 _artwork.Replace(null); // Fade away only after this track is confirmed artless.
-                _artworkStatus = "No player thumbnail (online fallback off)";
+                _artworkStatus = "No current-song cover (online fallback off)";
                 return;
             }
             byte[]? matched = await OnlineArtworkProvider.FindAsync(
@@ -534,7 +683,7 @@ internal sealed class LyricsController : Form
             if (matched == null)
             {
                 _artwork.Replace(null); // No replacement exists: fade the old cover out.
-                _artworkStatus = "No player thumbnail or matched catalog artwork";
+                _artworkStatus = "No current-song cover or reliable catalog match";
                 return;
             }
             _artwork.Replace(matched);
@@ -570,6 +719,7 @@ internal sealed class LyricsController : Form
             if (imageBytes.Length > 8388608)
                 throw new InvalidOperationException("Maximum cover size is 8 MB.");
             ++_artworkRequestId;
+            _manualArtworkForTrack = true;
             _artwork.Replace(imageBytes);
             _artworkStatus = "Manually selected cover image";
             _preview.Invalidate();
@@ -1186,6 +1336,11 @@ internal sealed class AlbumArtworkState : IDisposable
     public float FadeSeconds { get; set; } = 4f;
     public float CoverFadeSeconds { get; set; } = 3.4f;
     public Image? Previous => _previous;
+    // Outgoing art is permitted ONLY while its configured fade is active.
+    // Previously _previous survived indefinitely when the new song had no art.
+    public Image? VisiblePrevious => PanelProgress < 1f ? _previous : null;
+    public Image? VisibleBackground => _current ??
+        (Progress < 1f ? _previous : null);
     public Image? Current => _current;
     public float Progress => ProgressFor(FadeSeconds);
     public float PanelProgress => ProgressFor(CoverFadeSeconds);
@@ -1642,7 +1797,7 @@ internal sealed class LyricsCanvas : Control
     private void DrawIdleTakeover(Graphics g)
     {
         if (_idleBackground.LivingMix <= 0.001f) return;
-        var art = _artwork.Enabled ? _artwork.Current ?? _artwork.Previous : null;
+        var art = _artwork.Enabled ? _artwork.VisibleBackground : null;
         _fluidLiving.Draw(g, ClientRectangle, art, _idleBackground.LivingMix);
     }
 
@@ -1715,7 +1870,7 @@ internal sealed class LyricsCanvas : Control
 
         if (style == MelismaBackgroundStyle.Living)
         {
-            var livingArt = _artwork.Enabled ? _artwork.Current ?? _artwork.Previous : null;
+            var livingArt = _artwork.Enabled ? _artwork.VisibleBackground : null;
             _fluidLiving.Draw(g, ClientRectangle, livingArt, layerOpacity);
             // Darken the regular Living BACKGROUND for readable lyrics.
             // The idle screensaver is intentionally shown without this scrim.
@@ -1883,7 +2038,7 @@ internal sealed class LyricsCanvas : Control
             if (_artwork.Current != null && fade > 0f)
                 DrawCover(g, _artwork.Current, CoverFade.NewOpacity(fade), coverBox);
         }
-        if (!_artwork.Enabled || _artwork.Current == null && _artwork.Previous == null)
+        if (!_artwork.Enabled || _artwork.Current == null && _artwork.VisiblePrevious == null)
         {
             using var markFont = new Font("Segoe UI Symbol", Math.Clamp(maxCover / 5f, 14, 54));
             using var mark = new SolidBrush(Color.FromArgb(180, 198, 216, 230));

@@ -1,3 +1,31 @@
+# Melisma Universal Windows v0.6.13 — correct Foobar artwork (test build)
+
+## Why this update exists
+
+On **.Ready For It — Taylor Swift**, the MP3's embedded 600×600 front cover (Taylor wearing a black hat with red band across eyes) differs from the **reputation** image Melisma displayed. Windows v0.6.12 used Windows GSMTC's player thumbnail as authoritative, which can be a cached/previous-song or different-cover image. Some tracks retained prior-song artwork even when they had no cover.
+
+## Fix
+
+- Requires **Foobar Bridge v0.3**, which publishes the same track's actual front-cover bytes from Foobar2000's central now-playing artwork service. This preserves the read-only v0.1 position and v0.2 metadata channels unchanged.
+- The viewer reads the native artwork snapshot in a separate memory-mapped channel, with a generation number and consistent odd/even sequence guard. A cover from the *previous* track is never accepted as the current track's image.
+- Native Foobar art takes priority over Windows GSMTC thumbnails and online iTunes art. When native artwork is missing, the viewer clears the prior track's cover and optionally checks catalog artwork. Stale async lookup results are invalidated when the track changes.
+- During track changes, the outgoing art can remain **only as a transition** until the new cover is ready. Artless tracks cannot indefinitely show the old image under Living background or Cinema cover.
+- Diagnostics show the artwork source: Foobar front cover vs optional catalog vs legacy Windows media thumbnail.
+- Fix preserves v0.6.12's fade-in upcoming lyrics, dot animation, CPU budget, and controller window placement.
+
+## Manual acceptance
+
+1. Extract **Melisma Windows v0.6.13** in a separate folder.
+2. Install **Foobar Bridge v0.3**: Foobar2000 → File → Preferences → Components → Install → `foo_melisma_bridge.fb2k-component`; restart Foobar2000. This replaces v0.2.
+3. Play **.Ready For It — Taylor Swift**. Melisma should show the file's black-hat/red-band 600×600 *reputation* cover, not the black-and-white newspaper-style image shown by Windows earlier. In **Sources…**, confirm `Foobar2000 front cover (track matched)`.
+4. Switch between two files with distinct covers, then one with no embedded cover. No image from the preceding track should remain indefinitely, even with Living background.
+5. Try a track that previously showed no art, and test the user-selected album-cover transition duration with two embedded covers.
+6. If a track still shows the wrong cover, inspect Foobar2000's now-playing artwork pane and compare with Properties → Artwork. Album-art preferences or external artwork may differ in Foobar itself.
+
+The native bridge and Windows executable need both GitHub CI and a real Foobar playback check. Do not assume a Windows-only update fixes stale GSMTC art when the bridge remains v0.2.
+
+---
+
 # Melisma Universal Windows v0.6.12 — lyrics visible before the vocals (test build)
 
 ## Fix the instrumental-gap lyric blackout
