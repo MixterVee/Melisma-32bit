@@ -97,7 +97,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.13";
+        Text = "Melisma Universal · Windows v0.6.14";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -1476,6 +1476,18 @@ internal sealed class LyricsCanvas : Control
     private readonly List<TextLayout> _planned = new();
     private readonly List<string> _plannedTexts = new();
     private float[] _lineCenters = [];
+    private float[] _interludeCenters = [];
+    private InterludeSpan? _dotGap;
+    private long _dotFrameTick;
+    private readonly AndroidSpring[] _dotScale = Enumerable.Range(0, 3)
+        .Select(_ => new AndroidSpring(0.75f, 0.7f, 0.6f)).ToArray();
+    private readonly AndroidSpring[] _dotLift = Enumerable.Range(0, 3)
+        .Select(_ => new AndroidSpring(0f, 1.25f, 0.4f)).ToArray();
+    private readonly AndroidSpring[] _dotOpacity = Enumerable.Range(0, 3)
+        .Select(_ => new AndroidSpring(0.35f, 1f, 0.5f)).ToArray();
+    private readonly AndroidSpring _wordSpring = new(1f, 0.88f, 0.64f);
+    private string _wordSpringIdentity = "";
+    private long _wordFrameTick;
     private float _plannedWidth = -1f, _plannedPoints = -1f, _plannedDpi = -1f;
     private string _plannedSong = "", _plannedArtist = "", _plannedFontFamily = "";
     private string _lastPlainLyrics = "";
@@ -1610,12 +1622,17 @@ internal sealed class LyricsCanvas : Control
         // the viewport between those positions; never recalculate positions
         // when a line becomes highlighted or its rendered font grows.
         float anchor = _lineCenters[center];
-        if (inGap && upcoming >= 0 && active >= 0)
+        if (inGap && upcoming >= 0 &&
+            upcoming < _interludeCenters.Length &&
+            !float.IsNaN(_interludeCenters[upcoming]))
         {
-            float ahead = LyricPreviewMotion.Ahead(
-                interludeWindow!.Value, frame.LyricPositionMs);
-            anchor = _lineCenters[center] +
-                (_lineCenters[upcoming] - _lineCenters[center]) * ahead;
+            // Android's active element is the interlude ROW inserted before
+            // the next lyric, focused at 42% of the screen. Preview lyrics
+            // stay in the same scrolling layout above and below it.
+            anchor = AndroidInterludeRow.Focus(interludeWindow!.Value,
+                frame.LyricPositionMs, _interludeCenters[upcoming],
+                _lineCenters[upcoming],
+                active >= 0 ? _lineCenters[active] : null);
         }
         else if (animate)
         {
@@ -1627,7 +1644,8 @@ internal sealed class LyricsCanvas : Control
         {
             if (_display.MinimalMode && index < active) continue;
             var layout = _planned[index];
-            float y = Height * 0.50f + _lineCenters[index] - anchor;
+            float y = Height * AndroidInterludeRow.FocusFraction +
+                _lineCenters[index] - anchor;
             if (y + layout.TotalHeight / 2f < 0 ||
                 y - layout.TotalHeight / 2f > Height) continue;
 
@@ -1696,20 +1714,17 @@ internal sealed class LyricsCanvas : Control
                     animated.Value, emphasis, edgeOpacity * reveal);
         }
 
-        if (showDots && upcoming >= 0)
+        if (showDots && upcoming >= 0 &&
+            upcoming < _interludeCenters.Length &&
+            !float.IsNaN(_interludeCenters[upcoming]))
         {
-            // Place the dots between the previewed line and the following
-            // row, not on top of the words the viewer is preparing to sing.
-            float previewY = Height * 0.50f + _lineCenters[upcoming] - anchor;
-            float room = upcoming + 1 < _planned.Count
-                ? (_lineCenters[upcoming + 1] - _lineCenters[upcoming]) * 0.5f
-                : Math.Clamp(Height / 7f, 34f, 65f);
-            float dotsY = previewY + Math.Clamp(room, 27f, 63f);
-            long remaining = interludeWindow!.Value.EndMs -
-                LyricsInterlude.PreHideMs - frame.LyricPositionMs;
-            float exitFade = Math.Clamp(remaining / 380f, 0f, 1f);
-            DrawBouncingDots(g, frame.LyricPositionMs, dotsY,
-                reveal * exitFade);
+            // Android's three bullet glyphs occupy their own LEFT-ALIGNED
+            // row, BEFORE the upcoming lyric, not below it or centered as
+            // a floating overlay. Each dot owns a third of the gap.
+            float dotsY = Height * AndroidInterludeRow.FocusFraction +
+                _interludeCenters[upcoming] - anchor;
+            DrawAndroidInterlude(g, interludeWindow!.Value,
+                frame.LyricPositionMs, dotsY, upcoming, reveal);
         }
         g.Restore(textClip);
         DrawSourceCredit(g, frame);
@@ -2129,19 +2144,40 @@ internal sealed class LyricsCanvas : Control
         _plannedArtist = frame.Artist;
         _plannedFontFamily = _display.FontFamily;
         _lineCenters = new float[frame.Lines.Count];
+        _interludeCenters = Enumerable.Repeat(float.NaN,
+            frame.Lines.Count).ToArray();
 
+        float fontPx = preferredPoints * g.DpiY / 72f;
+        float interludeHeight = AndroidInterludeRow.Height(fontPx,
+            _controllerPreview);
         for (int i = 0; i < frame.Lines.Count; i++)
         {
             var lyric = frame.Lines[i];
-            // Use the full highlighted size AND bold weight to decide the
-            // wrap now, not when the line is selected. A small safety margin
-            // prevents glyph overhang at the screen boundary.
+            // Keep a full-sized, stable layout, like Android. Neither the
+            // line's font size nor its left edge should shift when sung.
             _planned.Add(MakeLayout(g, lyric.Text, preferredPoints,
                 true, availableWidth * 0.96f));
             _plannedTexts.Add(lyric.Text);
-            if (i > 0)
+
+            // Android Lyrics.withInterludes inserts a real dot row BEFORE
+            // each vocal that follows >=3s without vocals. Reserve its
+            // height in the permanent layout, even when dots are hidden.
+            var gap = LyricsInterlude.Before(frame.Lines, i);
+            if (i == 0)
+            {
+                if (gap.HasValue)
+                    _interludeCenters[0] = AndroidInterludeRow.IntroCenter(
+                        _lineCenters[0], _planned[0].TotalHeight, interludeHeight);
+            }
+            else
+            {
                 _lineCenters[i] = _lineCenters[i - 1] +
-                    Separation(_planned[i - 1], _planned[i]);
+                    Separation(_planned[i - 1], _planned[i]) +
+                    (gap.HasValue ? interludeHeight : 0f);
+                if (gap.HasValue)
+                    _interludeCenters[i] = AndroidInterludeRow.BetweenCenter(
+                        _lineCenters[i - 1], _lineCenters[i]);
+            }
         }
         _lastActive = int.MinValue;
         _transitionFrom = -1;
