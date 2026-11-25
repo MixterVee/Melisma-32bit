@@ -189,9 +189,16 @@ internal static class WordTimedLyrics
         return true;
     }
 
-    public static bool HasWordTimings(IReadOnlyList<LrcLine> lines) =>
-        lines.Count > 0 && lines.Count(x => x.Words is { Count: > 1 }) >=
-        Math.Max(1, lines.Count / 2);
+    public static bool HasWordTimings(IReadOnlyList<LrcLine> lines)
+    {
+        // Refrains, instrumental gaps, single-syllable calls and chorus
+        // snippets often have legitimate line-only timing interspersed with
+        // precisely timed words. Do not reject the entire TTML document
+        // simply because fewer than half its lines have 2+ timed spans.
+        int timed = lines.Count(x => x.Words is { Count: > 1 } &&
+            x.Words.Any(w => w.AtMs >= 0));
+        return timed >= Math.Min(3, Math.Max(1, lines.Count / 8));
+    }
 }
 
 /// <summary>
@@ -218,24 +225,49 @@ internal static class AmllWordProvider
             .Select(x => x.GetString() ?? "").Where(x => x.Length > 0).ToList();
     }
 
-    private static bool Matches(JsonElement item, string title, string artist)
-    {
-        string targetTitle = Key(title);
-        string primaryArtist = artist.Split(
-            [",", " & ", " feat.", " featuring ", " x ", " / ", ";"],
-            StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
-            .FirstOrDefault() ?? artist;
-        string targetArtist = Key(primaryArtist);
-        if (targetTitle.Length < 2 || targetArtist.Length < 2) return false;
+    // Different releases commonly add "(Remastered 2011)", "- Radio Edit"
+    // or "(feat. ...)" to the *same recording*. Compare the underlying title
+    // and primary artist, but never accept a completely different title.
+    private static readonly Regex Edition = new(
+        @"\s*(?:\((?:feat(?:uring)?|ft\.?|with|remaster(?:ed)?|radio edit|album version|single version|deluxe version|explicit|clean version)[^)]*\)|\[(?:feat(?:uring)?|ft\.?|remaster(?:ed)?|radio edit|deluxe)[^\]]*\])\s*$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    private static readonly Regex YearEdition = new(
+        @"\s*[-–]\s*(?:\d{4}\s*)?(?:remaster(?:ed)?|radio edit|single version)\b.*$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-        bool titleMatch = Strings(item, "musicNames").Any(name => Key(name) == targetTitle);
-        bool artistMatch = Strings(item, "artistNames").Any(name =>
+    internal static string CoreTitle(string title)
+    {
+        string result = title.Trim();
+        string previous;
+        do
         {
-            string actual = Key(name);
-            return actual == targetArtist ||
-                (targetArtist.Length >= 5 && actual.Contains(targetArtist,
-                    StringComparison.Ordinal));
-        });
+            previous = result;
+            result = Edition.Replace(result, "").Trim();
+            result = YearEdition.Replace(result, "").Trim();
+        } while (previous != result);
+        return Key(result);
+    }
+
+    private static string PrimaryArtist(string artists)
+    {
+        return Regex.Split(artists,
+            @"\s*(?:,|;|&|\band\b|\bfeat\.?|\bft\.?|\bfeaturing\b|\bx\b|\bwith\b)\s*",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)
+            .FirstOrDefault(x => !string.IsNullOrWhiteSpace(x))?.Trim() ?? artists.Trim();
+    }
+
+    internal static bool Matches(JsonElement item, string title, string artist)
+    {
+        string titleKey = Key(title);
+        string core = CoreTitle(title);
+        string primary = Key(PrimaryArtist(artist));
+        if (core.Length < 2 || primary.Length < 2) return false;
+
+        bool titleMatch = Strings(item, "musicNames").Any(name =>
+            Key(name) == titleKey || CoreTitle(name) == core);
+        bool artistMatch = Strings(item, "artistNames").Any(name =>
+            Key(name) == primary ||
+            Key(PrimaryArtist(name)) == primary);
         return titleMatch && artistMatch;
     }
 
@@ -244,45 +276,64 @@ internal static class AmllWordProvider
     public static async Task<List<LrcLine>?> FindAsync(
         HttpClient client, string title, string artist, CancellationToken token)
     {
-        string url = $"{Base}/v1/lyrics/search?musicName={UrlPart(title)}" +
-                     $"&artistName={UrlPart(artist)}&pageSize=20";
-        using var response = await client.GetAsync(url,
-            HttpCompletionOption.ResponseHeadersRead, token);
-        if (response.StatusCode is HttpStatusCode.TooManyRequests or
-            HttpStatusCode.ServiceUnavailable or HttpStatusCode.BadGateway)
-            return null;
-        if (!response.IsSuccessStatusCode) return null;
-        using var results = JsonDocument.Parse(await response.Content.ReadAsStringAsync(token));
-        if (!results.RootElement.TryGetProperty("data", out var data) ||
-            !data.TryGetProperty("items", out var items) ||
-            items.ValueKind != JsonValueKind.Array) return null;
-
-        // The search endpoint omits lyrics. Only fetch a strictly matched hit.
-        foreach (var item in items.EnumerateArray())
+        string primary = PrimaryArtist(artist);
+        string coreTitle = Edition.Replace(title.Trim(), "").Trim();
+        var queries = new List<string>
         {
-            if (item.ValueKind != JsonValueKind.Object ||
-                !Matches(item, title, artist) ||
-                !item.TryGetProperty("id", out var id) ||
-                !id.TryGetInt64(out long numericId) || numericId <= 0)
-                continue;
+            $"musicName={UrlPart(title)}&artistName={UrlPart(primary)}",
+            $"musicName={UrlPart(coreTitle)}",
+        };
+        if (!string.Equals(coreTitle, title, StringComparison.OrdinalIgnoreCase))
+            queries.Add($"musicName={UrlPart(title)}");
 
-            using var lyricsResponse = await client.GetAsync(
-                $"{Base}/v1/lyrics/get?id={numericId}",
+        var triedIds = new HashSet<long>();
+        int downloaded = 0;
+        foreach (var query in queries.Distinct())
+        {
+            token.ThrowIfCancellationRequested();
+            using var response = await client.GetAsync(
+                $"{Base}/v1/lyrics/search?{query}&pageSize=40",
                 HttpCompletionOption.ResponseHeadersRead, token);
-            if (!lyricsResponse.IsSuccessStatusCode) return null;
-            using var lyrics = JsonDocument.Parse(
-                await lyricsResponse.Content.ReadAsStringAsync(token));
-            if (!lyrics.RootElement.TryGetProperty("data", out var entry) ||
-                entry.ValueKind != JsonValueKind.Object ||
-                !Matches(entry, title, artist) ||
-                !entry.TryGetProperty("lyrics", out var text) ||
-                text.ValueKind != JsonValueKind.String) return null;
+            if (response.StatusCode is HttpStatusCode.TooManyRequests or
+                HttpStatusCode.ServiceUnavailable or HttpStatusCode.BadGateway)
+                return null;
+            if (!response.IsSuccessStatusCode) continue;
 
-            string xml = text.GetString() ?? "";
-            List<LrcLine> parsed;
-            try { parsed = WordTimedLyrics.ParseTtml(xml); }
-            catch (XmlException) { return null; }
-            if (WordTimedLyrics.HasWordTimings(parsed)) return parsed;
+            using var search = JsonDocument.Parse(
+                await response.Content.ReadAsStringAsync(token));
+            if (!search.RootElement.TryGetProperty("data", out var data) ||
+                !data.TryGetProperty("items", out var items) ||
+                items.ValueKind != JsonValueKind.Array) continue;
+
+            foreach (var candidate in items.EnumerateArray())
+            {
+                if (candidate.ValueKind != JsonValueKind.Object ||
+                    !Matches(candidate, title, artist) ||
+                    !candidate.TryGetProperty("id", out var rawId) ||
+                    !rawId.TryGetInt64(out long id) || id <= 0 ||
+                    !triedIds.Add(id))
+                    continue;
+
+                // Some same-title entries have incomplete or line-only
+                // TTML. Try another matching entry rather than giving up.
+                if (++downloaded > 4) return null;
+                using var lyricsResponse = await client.GetAsync(
+                    $"{Base}/v1/lyrics/get?id={id}",
+                    HttpCompletionOption.ResponseHeadersRead, token);
+                if (!lyricsResponse.IsSuccessStatusCode) continue;
+                using var doc = JsonDocument.Parse(
+                    await lyricsResponse.Content.ReadAsStringAsync(token));
+                if (!doc.RootElement.TryGetProperty("data", out var entry) ||
+                    entry.ValueKind != JsonValueKind.Object ||
+                    !Matches(entry, title, artist) ||
+                    !entry.TryGetProperty("lyrics", out var lyrics) ||
+                    lyrics.ValueKind != JsonValueKind.String) continue;
+
+                List<LrcLine> parsed;
+                try { parsed = WordTimedLyrics.ParseTtml(lyrics.GetString() ?? ""); }
+                catch (XmlException) { continue; }
+                if (WordTimedLyrics.HasWordTimings(parsed)) return parsed;
+            }
         }
         return null;
     }
