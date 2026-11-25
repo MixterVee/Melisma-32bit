@@ -66,7 +66,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.5.3";
+        Text = "Melisma Universal · Windows v0.5.4";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -1173,15 +1173,9 @@ internal sealed class LyricsCanvas : Control
     private void DrawCinemaPanel(Graphics g, LyricFrame frame)
     {
         RectangleF area = MediaArea;
-        using (var shade = new SolidBrush(Color.FromArgb(125, 9, 14, 28)))
-            g.FillRectangle(shade, area);
-        using (var pen = new Pen(Color.FromArgb(65, 225, 233, 242), 1f))
-        {
-            float separator = _display.ArtworkSide == ArtworkPanelSide.Left
-                ? area.Right - 1f : area.Left + 1f;
-            g.DrawLine(pen, separator, 0, separator, Height);
-        }
-
+        // The media and lyric zones are layout bounds only, not visually
+        // separate panels. The full-screen background flows continuously
+        // underneath both columns, with no shade or divider line.
         float pad = Math.Clamp(area.Width * 0.065f, 13f, 36f);
         float maxCover = Math.Min(area.Width - pad * 2f, area.Height * 0.58f);
         maxCover = Math.Max(20f, maxCover);
@@ -1220,6 +1214,9 @@ internal sealed class LyricsCanvas : Control
             Math.Clamp(area.Width / 29f, 11f, 17f));
         using var titleBrush = new SolidBrush(Color.White);
         using var artistBrush = new SolidBrush(Color.FromArgb(205, 199, 212, 226));
+        // A subtle shadow just under the text preserves readability over
+        // light album artwork without tinting the entire Cinema column.
+        using var textShadow = new SolidBrush(Color.FromArgb(150, 0, 0, 0));
         using var alignment = new StringFormat
         {
             Alignment = StringAlignment.Center,
@@ -1228,12 +1225,18 @@ internal sealed class LyricsCanvas : Control
         };
         var titleRect = new RectangleF(area.Left + pad, textTop,
             area.Width - pad * 2f, Math.Min(65f, textHeight * 0.58f));
+        var titleShadowRect = titleRect;
+        titleShadowRect.Offset(1.5f, 2f);
+        g.DrawString(frame.Song, titleFont, textShadow, titleShadowRect, alignment);
         g.DrawString(frame.Song, titleFont, titleBrush, titleRect, alignment);
         if (frame.Artist.Length > 0)
         {
             var artistRect = new RectangleF(area.Left + pad,
                 titleRect.Bottom + 5f, area.Width - pad * 2f,
                 Math.Max(15f, textHeight - titleRect.Height - 8f));
+            var artistShadowRect = artistRect;
+            artistShadowRect.Offset(1f, 2f);
+            g.DrawString(frame.Artist, artistFont, textShadow, artistShadowRect, alignment);
             g.DrawString(frame.Artist, artistFont, artistBrush, artistRect, alignment);
         }
     }
