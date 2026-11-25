@@ -379,12 +379,16 @@ internal sealed class LyricsController : Form
             : _bridgeWasStale
                 ? $"STALE — latest sample age {_bridgeAgeMs} ms"
                 : "Not connected / unreadable";
+        string nativeTags = _nativeTags.TryRead(out var tags)
+            ? $"Available · Title: '{tags.Title}' · Artist: '{tags.Artist}' · Album: '{tags.Album}'"
+            : "Not available (Foobar bridge v0.2 required)";
         return "PLAYBACK TIMING (live)\n" +
             $"Playback status: {StateText()}\n" +
             $"Clock: {_clockSource}\n" +
             $"Current position: {(_clockUsable ? Clock(_positionMs) : "UNAVAILABLE")}\n" +
             $"Duration: {(_clockUsable ? Clock(_durationMs) : "UNAVAILABLE")}\n" +
             $"Native Foobar bridge: {native}\n" +
+            $"Foobar native song tags: {nativeTags}\n" +
             $"Windows media timeline: {(_windowsTimelineValid ? "Available" : "Not published")}\n" +
             $"Active lyric: {active}\n" +
             $"Artwork: {_artworkStatus}\n\n" +
