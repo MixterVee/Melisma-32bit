@@ -17,6 +17,7 @@
     <Compile Include="../LyricWordSpacing.cs" Link="LyricWordSpacing.cs" />
     <Compile Include="../ActiveWordPulse.cs" Link="ActiveWordPulse.cs" />
     <Compile Include="ActiveWordPulseTests.cs" />
+    <Compile Include="ProviderProgressTests.cs" />
     <Compile Include="WordSpacingTests.cs" />
     <Compile Include="../OnlineArtworkProvider.cs" Link="OnlineArtworkProvider.cs" />
     <Compile Include="AdditionalSourceTests.cs" />
