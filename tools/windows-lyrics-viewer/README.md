@@ -16,10 +16,10 @@ just another layer behind the lyrics.
   Normal Windows controller buttons remain accessible while idle.
 - **Idle Living delay**: 10–15 seconds, default 12. Brief pauses and gaps
   between tracks never activate the screensaver.
-- Screensaver enters over about **1.5 seconds**.
-- **Return from idle fade**: 2–12 seconds, default **6 seconds**. When music
-  starts again, the screensaver slowly becomes transparent, revealing the
-  current artwork and lyrics at their **actual live playback position**.
+- **Idle Living fade (in/out)**: one shared speed for both entrance and exit,
+  adjustable **2–12 seconds**, default **6 seconds**. Living smoothly covers
+  the entire display in 6 seconds, then fades out over the same 6 seconds
+  when playback resumes, revealing lyrics at their **actual live playback position**.
 - Foobar2000's read-only bridge and lyric timing continue to update while
   the screensaver covers the display; no seeking, restarting or freezing.
 - Your saved Lyrics/Cinema layout, normal background style, background fade,
@@ -36,10 +36,10 @@ just another layer behind the lyrics.
 2. Select **View → Cinema**, set the normal **Background → Style** to Black
    (for an obvious contrast).
 3. Enable **Full-screen Living when idle**, set **Idle Living delay = 12 seconds**,
-   and **Return from idle fade = 6.0 seconds**.
+   and **Idle Living fade (in/out) = 6.0 seconds**.
 4. Play a song and pause for only 5 seconds: the normal display should stay.
-5. Keep paused for more than 12 seconds: abstract fluid Living should fill the
-   *entire canvas*, hiding even the sharp album-cover panel and lyric text.
+5. Keep paused for more than 12 seconds: abstract fluid Living should gradually
+   cover the *entire canvas* in about 6 seconds, hiding even the sharp album-cover panel and lyrics.
 6. Resume foobar2000: over about 6 seconds, the full Cinema display and lyrics
    should gradually reappear, synchronized to the correct point in the song.
 7. Stop music or wait between tracks for 12+ seconds: Living returns.
