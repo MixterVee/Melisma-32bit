@@ -31,6 +31,9 @@ internal sealed class MelismaDisplaySettings
     // Defaults intentionally match the previous Windows v0.4.2 presentation.
     public MelismaBackgroundStyle Background { get; set; } = MelismaBackgroundStyle.CoverArt;
     public int CoverBlur { get; set; } = 0;
+    // Falls back to a matched public iTunes album cover when the player
+    // publishes no thumbnail; it never overrides a player-provided image.
+    public bool AutoArtworkLookup { get; set; } = true;
     // After a meaningful pause or when no track is playing, temporarily
     // show Living without overwriting the user's saved background style.
     public bool IdleLivingEnabled { get; set; } = true;
@@ -148,6 +151,9 @@ internal sealed class MelismaDisplaySettingsForm : Form
             i => settings.Background = (MelismaBackgroundStyle)i);
         Number(background, "Cover blur", settings.CoverBlur, 0, 67, 1,
             0, value => settings.CoverBlur = (int)value, "0–67");
+        Toggle(background, "Find artwork when player supplies none",
+            settings.AutoArtworkLookup,
+            value => settings.AutoArtworkLookup = value);
         Number(background, "Background transition", (decimal)artwork.FadeSeconds,
             1, 10, 0.2m, 1,
             value => artwork.FadeSeconds = (float)value, "seconds");
@@ -170,10 +176,11 @@ internal sealed class MelismaDisplaySettingsForm : Form
             "Lyrics remain synchronized underneath. Your one selected idle " +
             "fade duration applies both entering and leaving the screensaver. " +
             "Living (classic) remains a lightweight gradient effect; Living now " +
-            "uses organically moving colour clouds. " +
-            "based on the selected cover's colours. Auto currently selects Living. " +
+            "uses organically moving colour clouds based on the cover. " +
+            "Auto currently selects Living. " +
             "Artist falls back to Cover art until a separate artist-image source is added. " +
-            "Cover art may be unavailable if the player does not publish it.");
+            "When enabled, missing player artwork is searched in Apple's " +
+            "public catalog using title/artist/album matching.");
 
         Number(lyrics, "Text size", (decimal)settings.FontScale,
             0.7m, 1.6m, 0.1m, 1,

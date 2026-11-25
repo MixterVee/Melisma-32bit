@@ -91,6 +91,9 @@ internal static class LyricsSourceOrchestrator
                     durationMs, ct), token),
             Query("amll", "AMLL TTML DB", async ct =>
                 await AmllWordProvider.FindAsync(http, title, artist, ct), token),
+            Query("netease", "NetEase YRC (Android source)", async ct =>
+                await NetEaseWordProvider.FindAsync(http, title, artist,
+                    durationMs, ct), token),
             Query("better", "Better Lyrics (TTML / QQ)", async ct =>
             {
                 var result = await BetterLyricsWordProvider.FindAsync(http,
@@ -106,7 +109,8 @@ internal static class LyricsSourceOrchestrator
         // are handled before network lookup in the controller.
         var preference = new Dictionary<string, int>
         {
-            ["lrcred"] = 0, ["amll"] = 1, ["better"] = 2, ["lrclib"] = 3
+            ["lrcred"] = 0, ["amll"] = 1, ["netease"] = 2,
+            ["better"] = 3, ["lrclib"] = 4
         };
         int fullest = all.Max(a => a.Total);
         var reference = all.FirstOrDefault(a => a.Id == "lrclib")?.Lines;

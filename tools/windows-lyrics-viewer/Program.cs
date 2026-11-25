@@ -44,7 +44,7 @@ internal sealed class LyricsController : Form
     private readonly Label _trackLabel = Label(18, Color.White, true);
     private readonly Label _statusLabel = Label(10, Color.FromArgb(126, 225, 223));
     private readonly Label _infoLabel = Label(10, Color.FromArgb(170, 181, 203));
-    private readonly Button _secondScreenButton = Button("Show on second monitor", 190);
+    private readonly Button _secondScreenButton = Button("Second screen", 146);
     private readonly Button _minusButton = Button("−100 ms", 108);
     private readonly Button _plusButton = Button("+100 ms", 108);
     private readonly Button _resetButton = Button("Reset", 84);
@@ -80,11 +80,12 @@ internal sealed class LyricsController : Form
     private string _loadedFor = "";
     private CancellationTokenSource? _searchCancellation;
     private int _artworkRequestId;
+    private string _artworkStatus = "No track artwork loaded";
     private static readonly HttpClient Client = CreateHttpClient();
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.4";
+        Text = "Melisma Universal · Windows v0.6.5";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -131,11 +132,11 @@ internal sealed class LyricsController : Form
             Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight,
             WrapContents = false, AutoScroll = true
         };
-        var online = Button("Find synced lyrics", 147);
+        var online = Button("Find lyrics", 120);
         online.Click += (_, _) => _ = LoadLyricsAsync(true);
         toolbar.Controls.Add(online);
 
-        var open = Button("Open lyrics file", 132);
+        var open = Button("Open lyrics", 115);
         open.Click += OpenLrc;
         toolbar.Controls.Add(open);
 
@@ -153,20 +154,20 @@ internal sealed class LyricsController : Form
             Dock = DockStyle.Fill, WrapContents = false, AutoScroll = true,
             FlowDirection = FlowDirection.LeftToRight
         };
-        var settingsButton = Button("Display settings…", 164);
+        var settingsButton = Button("Display…", 119);
         settingsButton.Click += OpenDisplaySettings;
         extraControls.Controls.Add(settingsButton);
-        var openCover = Button("Open cover image", 162);
+        var openCover = Button("Cover…", 106);
         openCover.Click += OpenCoverImage;
         extraControls.Controls.Add(openCover);
-        var lookupDetails = Button("Source details…", 144);
+        var lookupDetails = Button("Sources…", 120);
         lookupDetails.Click += (_, _) => MessageBox.Show(this,
             BuildDiagnostics(),
             "Melisma · Lyrics and playback diagnostics",
             MessageBoxButtons.OK, MessageBoxIcon.Information);
         extraControls.Controls.Add(lookupDetails);
         var note = Label(9.5f, Color.FromArgb(175, 188, 204));
-        note.Text = "Lyrics / Cinema · Background · Lyrics display";
+        note.Text = "Cinema · Artwork · Lyrics";
         note.Width = 400;
         note.Height = 37;
         extraControls.Controls.Add(note);
@@ -357,7 +358,8 @@ internal sealed class LyricsController : Form
             $"Duration: {(_clockUsable ? Clock(_durationMs) : "UNAVAILABLE")}\n" +
             $"Native Foobar bridge: {native}\n" +
             $"Windows media timeline: {(_windowsTimelineValid ? "Available" : "Not published")}\n" +
-            $"Active lyric: {active}\n\n" +
+            $"Active lyric: {active}\n" +
+            $"Artwork: {_artworkStatus}\n\n" +
             "If the position is unavailable, check Foobar2000 → " +
             "Preferences → Components for 'Melisma Foobar2000 Bridge' " +
             "and restart Foobar2000 if needed.\n\n" +
@@ -397,7 +399,9 @@ internal sealed class LyricsController : Form
             // Invalidate any delayed artwork read from the preceding song.
             int artworkRequest = ++_artworkRequestId;
             _artwork.Replace(null);
-            _ = LoadArtworkAsync(props.Thumbnail, _loadedFor, artworkRequest);
+            _artworkStatus = "Looking for artwork";
+            _ = LoadArtworkAsync(props.Thumbnail, title, artist, album,
+                _durationMs, _loadedFor, artworkRequest);
             _trackLabel.Text = title + "  —  " + artist;
             _offsetMs = _offsets.Read(title, artist, album);
             _offsetSaved = true;
@@ -417,29 +421,72 @@ internal sealed class LyricsController : Form
     }
 
     private async Task LoadArtworkAsync(IRandomAccessStreamReference? thumbnail,
+        string title, string artist, string album, long durationMs,
         string trackKey, int requestId)
     {
-        if (thumbnail == null) return;
+        bool StillCurrent() => !IsDisposed && requestId == _artworkRequestId &&
+            trackKey == _loadedFor;
         try
         {
-            using var random = await thumbnail.OpenReadAsync();
-            if (random.Size is 0 or > 8388608) return;
-            using var reader = new DataReader(random);
-            uint byteCount = (uint)random.Size;
-            uint loaded = await reader.LoadAsync(byteCount);
-            if (loaded != byteCount) return;
-            var imageBytes = new byte[byteCount];
-            reader.ReadBytes(imageBytes);
-            if (IsDisposed || requestId != _artworkRequestId ||
-                trackKey != _loadedFor) return;
-            _artwork.Replace(imageBytes);
+            // Always trust the player's own artwork first. If foobar2000
+            // publishes no thumbnail, only then try a public catalog.
+            if (thumbnail != null)
+            {
+                try
+                {
+                    using var random = await thumbnail.OpenReadAsync();
+                    if (random.Size is > 128 and <= 8388608)
+                    {
+                        using var reader = new DataReader(random);
+                        uint count = (uint)random.Size;
+                        if (await reader.LoadAsync(count) == count)
+                        {
+                            byte[] data = new byte[count];
+                            reader.ReadBytes(data);
+                            if (!StillCurrent()) return;
+                            _artwork.Replace(data);
+                            _artworkStatus = "Player-supplied album artwork";
+                            _preview.Invalidate();
+                            _projection?.Redraw();
+                            return;
+                        }
+                    }
+                }
+                catch (Exception ex) when (ex is IOException or ArgumentException or
+                            InvalidOperationException or
+                            System.Runtime.InteropServices.COMException)
+                {
+                    // A missing or unreadable GSMTC thumbnail can happen even
+                    // for a song with embedded cover art; try online fallback.
+                }
+            }
+            if (!StillCurrent()) return;
+            if (!_display.AutoArtworkLookup)
+            {
+                _artworkStatus = "No player thumbnail (online fallback off)";
+                return;
+            }
+            byte[]? matched = await OnlineArtworkProvider.FindAsync(
+                title, artist, album, durationMs, CancellationToken.None);
+            if (!StillCurrent()) return;
+            if (matched == null)
+            {
+                _artworkStatus = "No player thumbnail or matched catalog artwork";
+                return;
+            }
+            _artwork.Replace(matched);
+            _artworkStatus = "Matched iTunes album artwork (online fallback)";
             _preview.Invalidate();
             _projection?.Redraw();
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+                        or ArgumentException or InvalidOperationException
+                        or System.Runtime.InteropServices.COMException
+                        or OutOfMemoryException)
         {
-            // Some playback sessions expose metadata but no usable art.
-            // Keep the dark gradient and working lyric timeline.
+            if (StillCurrent()) _artworkStatus =
+                "Cover image unavailable: " + ex.GetType().Name;
+            // Artwork is optional. Never interrupt lyrics/playback.
         }
     }
 
@@ -458,6 +505,7 @@ internal sealed class LyricsController : Form
                 throw new InvalidOperationException("Maximum cover size is 8 MB.");
             ++_artworkRequestId;
             _artwork.Replace(imageBytes);
+            _artworkStatus = "Manually selected cover image";
             _preview.Invalidate();
             _projection?.Redraw();
         }
@@ -544,10 +592,10 @@ internal sealed class LyricsController : Form
         _projection.FormClosed += (_, _) =>
         {
             _projection = null;
-            if (!IsDisposed) _secondScreenButton.Text = "Show on second monitor";
+            if (!IsDisposed) _secondScreenButton.Text = "Second screen";
         };
         _projection.Show(this);
-        _secondScreenButton.Text = "Close second monitor";
+        _secondScreenButton.Text = "Close second";
     }
 
     private void OpenLrc(object? sender, EventArgs e)
@@ -657,14 +705,10 @@ internal sealed class LyricsController : Form
                 : best.WordTimed ? "Word-synced" : "Line-synced";
             _statusLabel.Text = $"{timing} · {best.Name}";
             _notice = introAdded
-                ? $"{best.Total} lines: early vocals from LRCLIB (line timed), " +
-                  $"{best.Timed} word-timed lines from {best.Id}. " +
-                  "All timestamps are source-provided."
+                ? $"{best.Total} lines · Opening verse line-timed, later words synchronized"
                 : best.WordTimed
-                    ? $"{best.Total} lines, {best.Timed} with real word timing · " +
-                      "Pause/seek Foobar2000 to verify."
-                    : $"{best.Total} line-timed lyrics; see Source details… " +
-                      "for the other providers.";
+                    ? $"{best.Timed} word-timed lines · Pause or seek to test"
+                    : $"{best.Total} line-timed lines · Sources… for details";
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)

@@ -155,6 +155,7 @@ internal static class ParserSmokeTests
             "Invalid future bridge timestamp rejected");
 
         CoverageTests.Run(Check);
+        AdditionalSourceTests.Run(Check);
         Console.WriteLine($"PASS: {_passed} lyric parser checks.");
     }
 }
