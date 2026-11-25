@@ -1037,8 +1037,8 @@ internal sealed class LyricsCanvas : Control
 
         if (style == MelismaBackgroundStyle.Living)
         {
-            var art = _artwork.Enabled ? _artwork.Current ?? _artwork.Previous : null;
-            _fluidLiving.Draw(g, ClientRectangle, art, layerOpacity);
+            var livingArt = _artwork.Enabled ? _artwork.Current ?? _artwork.Previous : null;
+            _fluidLiving.Draw(g, ClientRectangle, livingArt, layerOpacity);
             // Darken the regular Living BACKGROUND for readable lyrics.
             // The idle screensaver is intentionally shown without this scrim.
             using var veil = new SolidBrush(Color.FromArgb(
