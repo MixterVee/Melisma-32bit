@@ -20,10 +20,10 @@ foreach (var song in songs)
     await Inspect($"AMLL search by title+artist",
         $"https://api.amll.dev/v1/lyrics/search?musicName={E(song.Title)}&artistName={E(song.Artist)}&pageSize=20",
         "data.items", true);
-    var args = BetterLyricsWordProvider.Query(song.Title, song.Artist, song.Album, song.Duration);
-    await Inspect("BetterLyrics TTML", $"https://api.betterlyrics.org/getLyrics?{args}",
+    var queryArgs = BetterLyricsWordProvider.Query(song.Title, song.Artist, song.Album, song.Duration);
+    await Inspect("BetterLyrics TTML", $"https://api.betterlyrics.org/getLyrics?{queryArgs}",
         "ttml", false);
-    await Inspect("BetterLyrics QQ", $"https://api.betterlyrics.org/qq/getLyrics?{args}",
+    await Inspect("BetterLyrics QQ", $"https://api.betterlyrics.org/qq/getLyrics?{queryArgs}",
         "lyrics", false);
 
     try
