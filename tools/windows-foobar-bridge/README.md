@@ -1,3 +1,18 @@
+# Melisma Foobar2000 Bridge v0.2 — read-only playback and song metadata
+
+Foobar2000's Windows media-session API can omit the artist, album and useful duration while the native v0.1 timing bridge works. The Windows lyrics viewer then searches for incomplete song metadata and produces false misses or plain lyrics.
+
+Bridge v0.2 keeps the **original** Local\\MelismaFoobarBridge_v1 time mapping unchanged, and adds a separate optional Local\\MelismaFoobarMetadata_v1 mapping holding only title, artist, album (UTF-8, 256 bytes each) and track generation. Song tags are read by the Foobar2000 SDK's title formatting from the current track, once on track-change/tag-edit events; no network, filesystem scan, audio samples or control of playback. No file path is exposed to the lyrics viewer.
+
+## Installation
+
+1. Extract the GitHub Actions bridge package and use Foobar2000 **File → Preferences → Components → Install** to select `foo_melisma_bridge.fb2k-component`.
+2. Confirm replacement of old **Melisma Foobar2000 Bridge v0.1**, and restart Foobar2000.
+3. Run Melisma Windows v0.6.11; **Sources…** now reports the native Foobar title, artist, album and source duration.
+4. If the artist is *still* blank, check that Foobar2000 actually shows an Artist metadata tag for this file. The bridge does not invent artist identities.
+
+This component is currently for **Foobar2000 64-bit on Windows x64**, and must be manually tested. v0.1 time-only readers remain compatible.
+
 # Melisma Foobar2000 Bridge — Windows karaoke timing prototype
 
 This is an **optional, read-only Foobar2000 x64 component** for the first Windows Melisma Karaoke proof of concept.
