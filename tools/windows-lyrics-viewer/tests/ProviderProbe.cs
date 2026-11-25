@@ -34,6 +34,26 @@ foreach (var song in songs)
         Console.WriteLine($"  lrc.red application result: {(red == null ? "none" : $"{red.Count} lines, {red.Count(x => x.Words is { Count: > 1 })} word-timed")}");
     }
     catch (Exception ex) { Console.WriteLine($"  lrc.red application exception: {ex.GetType().Name}: {ex.Message}"); }
+    // Diagnose whether source cue times agree with audio at 24 seconds.
+    try
+    {
+        var timed = await LrcRedWordProvider.FindAsync(client, song.Title,
+            song.Artist, song.Duration, CancellationToken.None);
+        if (timed != null)
+        {
+            Console.WriteLine("  lrc.red first cue ms: " +
+                string.Join(", ", timed.Take(8).Select(x => x.AtMs)));
+            Console.WriteLine("  lrc.red final cue ms: " +
+                string.Join(", ", timed.TakeLast(3).Select(x => x.AtMs)));
+            Console.WriteLine("  lrc.red active index at 24s: " +
+                timed.FindLastIndex(x => x.AtMs <= 24000));
+            Console.WriteLine("  first word start ms: " +
+                string.Join(", ", timed[0].Words?.Take(5).Select(x => x.AtMs) ??
+                    Array.Empty<long>()));
+        }
+    }
+    catch (Exception ex) { Console.WriteLine("  cue sample failed: " + ex.Message); }
+
 
     try
     {
