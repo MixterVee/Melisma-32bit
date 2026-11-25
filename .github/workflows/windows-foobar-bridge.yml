@@ -7,6 +7,10 @@ on:
       - 'tools/windows-foobar-bridge/**'
       - 'tools/windows-media-detector/**'
       - '.github/workflows/windows-foobar-bridge.yml'
+  pull_request:
+    paths:
+      - 'tools/windows-foobar-bridge/**'
+      - '.github/workflows/windows-foobar-bridge.yml'
   workflow_dispatch:
 
 permissions:
