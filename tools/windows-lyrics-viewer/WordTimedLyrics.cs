@@ -90,7 +90,19 @@ internal static class WordTimedLyrics
             {
                 string value = Whitespace.Replace(text.Value, " ");
                 all.Append(value);
-                if (!string.IsNullOrWhiteSpace(value)) untimed = true;
+                if (!string.IsNullOrWhiteSpace(value))
+                    untimed = true;
+                else if (timed.Count > 0 && value.Length > 0 &&
+                    !timed[^1].Text.EndsWith(' '))
+                {
+                    // TTML often writes the separator BETWEEN sibling spans
+                    // rather than inside either span. Attach it to the
+                    // preceding timed chunk so char offsets stay aligned.
+                    timed[^1] = timed[^1] with
+                    {
+                        Text = timed[^1].Text + value
+                    };
+                }
                 continue;
             }
 
