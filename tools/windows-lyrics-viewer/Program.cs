@@ -85,7 +85,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.5";
+        Text = "Melisma Universal · Windows v0.6.6";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -548,14 +548,16 @@ internal sealed class LyricsController : Form
 
     private void UpdateDelayLabel()
     {
+        // A WinForms Label redraws its complete surface on every Text
+        // change. A moving mm:ss counter made the whole footer flash
+        // approximately every 400ms. Precise current position remains
+        // available in Sources... -> PLAYBACK TIMING (live), on demand.
         string text = $"Lyrics delay: {_offsetMs:+0;-0;0} ms" +
             (_song.Length > 0
                 ? $" ({(_offsetSaved ? "saved" : "not saved")})"
                 : "") +
             (_clockUsable
-                ? $"   |   Playback: {Clock(_positionMs)} / " +
-                  $"{(_durationMs > 0 ? Clock(_durationMs) : "??:??")} " +
-                  $"· {StateText()} · {_clockSource}"
+                ? $"   |   Playback: {StateText()} · {_clockSource}"
                 : $"   |   ⚠ Playback position UNAVAILABLE · {_clockSource}");
         if (_infoLabel.Text != text) _infoLabel.Text = text;
     }
