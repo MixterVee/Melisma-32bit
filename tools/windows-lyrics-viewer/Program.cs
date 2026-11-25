@@ -397,6 +397,12 @@ internal sealed class LyricsController : Form
         string nativeTags = _nativeTags.TryRead(out var tags)
             ? $"Available · Title: '{tags.Title}' · Artist: '{tags.Artist}' · Album: '{tags.Album}'"
             : "Not available (Foobar bridge v0.2 required)";
+        string nativeCover = _nativeArtwork.TryRead(out var cover)
+            ? $"Connected · Track generation {cover.Generation}" +
+              $" · Status {(cover.State == NativeArtworkState.HasCover ? "front cover" :
+                         cover.State == NativeArtworkState.NoCover ? "no cover" : "loading")}" +
+              $" · Bytes {cover.Bytes?.Length ?? 0}"
+            : "Not available (Foobar bridge v0.3 required)";
         return "PLAYBACK TIMING (live)\n" +
             $"Playback status: {StateText()}\n" +
             $"Clock: {_clockSource}\n" +
@@ -404,6 +410,7 @@ internal sealed class LyricsController : Form
             $"Duration: {(_clockUsable ? Clock(_durationMs) : "UNAVAILABLE")}\n" +
             $"Native Foobar bridge: {native}\n" +
             $"Foobar native song tags: {nativeTags}\n" +
+            $"Foobar native artwork: {nativeCover}\n" +
             $"Windows media timeline: {(_windowsTimelineValid ? "Available" : "Not published")}\n" +
             $"Active lyric: {active}\n" +
             $"Artwork: {_artworkStatus}\n\n" +
@@ -520,8 +527,35 @@ internal sealed class LyricsController : Form
         if (_loadedFor.Length == 0 ||
             _lastLoadedGeneration != _lastFoobarTrackGeneration)
         {
-            // Even a completely untagged file must not display the previous
-            // song's cover forever if Foobar cannot publish a title.
+            // Art is independent of the artist/title fields: an untagged MP3
+            // can still contain an excellent front cover. Match it directly
+            // by the native playback generation rather than dropping it.
+            if (NativeArtworkState.Matches(_lastFoobarTrackGeneration, sample) &&
+                sample.State == NativeArtworkState.HasCover &&
+                sample.Bytes is { Length: > 128 } bytes &&
+                (sample.Sequence != _nativeCoverSequence ||
+                 sample.Generation != _nativeCoverGeneration))
+            {
+                _nativeCoverSequence = sample.Sequence;
+                _nativeCoverGeneration = sample.Generation;
+                ++_artworkRequestId;
+                try
+                {
+                    _artwork.Replace(bytes);
+                    _artworkStatus = "Foobar2000 front cover (untagged track)";
+                }
+                catch (Exception ex) when (ex is ArgumentException or
+                    OutOfMemoryException or InvalidOperationException)
+                {
+                    _artwork.Replace(null);
+                    _artworkStatus = "Invalid Foobar cover: " + ex.GetType().Name;
+                }
+                _preview.Invalidate();
+                _projection?.Redraw();
+                return;
+            }
+            // A completely untagged / delayed metadata track with no native
+            // cover must still stop showing the prior song indefinitely.
             if (Environment.TickCount64 - _nativeCoverRequestedAt >= 1800 &&
                 !_artworkFallbackStarted)
             {
