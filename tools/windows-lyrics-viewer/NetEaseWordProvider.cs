@@ -20,7 +20,9 @@ internal static class NetEaseWordProvider
         HttpClient client, string title, string artist, long durationMs,
         CancellationToken cancellation)
     {
-        if (title.Length < 2 || artist.Length < 2) return null;
+        // Android will search by title when the player omits artist tags.
+        // Require duration in that case so another artist's version cannot win.
+        if (title.Length < 2 || (artist.Length < 2 && durationMs <= 0)) return null;
         string primary = AndroidLyricsMatch.SplitArtists(artist).FirstOrDefault() ??
             artist;
         string clean = AndroidLyricsMatch.CleanTitle(title);
@@ -71,6 +73,13 @@ internal static class NetEaseWordProvider
                 }
                 float score = AndroidLyricsMatch.Score(title, artist, durationMs,
                     candidateTitle, string.Join(", ", artists), candidateDuration);
+                if (artist.Length < 2 &&
+                    (candidateDuration <= 0 ||
+                     Math.Abs(candidateDuration - durationMs) > 5000 ||
+                     !string.Equals(AndroidLyricsMatch.CleanTitle(title),
+                        AndroidLyricsMatch.CleanTitle(candidateTitle),
+                        StringComparison.OrdinalIgnoreCase)))
+                    continue;
                 if (score >= MatchThreshold) matches.Add((id, score));
             }
 
