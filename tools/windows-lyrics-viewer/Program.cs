@@ -1003,18 +1003,41 @@ internal sealed class LyricsCanvas : Control
 
     private void DrawArtworkBackground(Graphics g)
     {
-        var style = _display.Background == MelismaBackgroundStyle.Auto
+        var selected = _display.Background == MelismaBackgroundStyle.Auto
             ? MelismaBackgroundStyle.Living : _display.Background;
+        DrawBackgroundStyle(g, selected, 1f);
+
+        // Draw Living as a semi-transparent layer over the currently selected
+        // background. The 900ms blend smoothly fades it in after a sustained
+        // silence and fades it back out when playback resumes. We never alter
+        // the saved background selection, Cinema artwork, or lyric timing.
+        float idleBlend = _idleBackground.LivingMix;
+        if (selected != MelismaBackgroundStyle.Living && idleBlend > 0.001f)
+            DrawBackgroundStyle(g, MelismaBackgroundStyle.Living, idleBlend);
+    }
+
+    private void DrawBackgroundStyle(Graphics g, MelismaBackgroundStyle style,
+        float layerOpacity)
+    {
+        layerOpacity = Math.Clamp(layerOpacity, 0f, 1f);
+        if (layerOpacity <= 0f) return;
 
         if (style == MelismaBackgroundStyle.Black)
         {
-            g.Clear(Color.Black);
+            if (layerOpacity >= 1f) g.Clear(Color.Black);
+            else
+            {
+                using var black = new SolidBrush(Color.FromArgb(
+                    (int)(255f * layerOpacity), Color.Black));
+                g.FillRectangle(black, ClientRectangle);
+            }
             return;
         }
 
         var art = _artwork.Enabled ? _artwork.Current : null;
         DrawPalette(g, art, style is MelismaBackgroundStyle.Living
-                                or MelismaBackgroundStyle.LivingClassic);
+                                or MelismaBackgroundStyle.LivingClassic,
+            layerOpacity);
 
         if (style is MelismaBackgroundStyle.Colour
             or MelismaBackgroundStyle.LivingClassic) return;
@@ -1026,7 +1049,8 @@ internal sealed class LyricsCanvas : Control
 
         int blur = style == MelismaBackgroundStyle.Living
             ? 30 : _display.CoverBlur;
-        float opacity = style == MelismaBackgroundStyle.Living ? 0.56f : 0.76f;
+        float opacity = (style == MelismaBackgroundStyle.Living ? 0.56f : 0.76f)
+            * layerOpacity;
 
         Rectangle target = ClientRectangle;
         if (style == MelismaBackgroundStyle.Living)
@@ -1047,21 +1071,26 @@ internal sealed class LyricsCanvas : Control
 
         if (previous != null || current != null)
         {
-            using var scrim = new SolidBrush(Color.FromArgb(157, 8, 12, 25));
+            using var scrim = new SolidBrush(Color.FromArgb(
+                (int)(157f * layerOpacity), 8, 12, 25));
             g.FillRectangle(scrim, ClientRectangle);
         }
     }
 
-    private void DrawPalette(Graphics g, Image? art, bool moving)
+    private void DrawPalette(Graphics g, Image? art, bool moving,
+        float layerOpacity)
     {
         var one = Sample(art, 0.24f, 0.28f, Color.FromArgb(42, 73, 107));
         var two = Sample(art, 0.75f, 0.68f, Color.FromArgb(91, 36, 99));
         float motion = moving ? MathF.Sin(Environment.TickCount64 / 4800f) * 0.18f : 0f;
         float angle = 38f + motion * 115f;
+        int alpha = Math.Clamp((int)(255f * layerOpacity), 0, 255);
         using var fill = new LinearGradientBrush(ClientRectangle,
-            Darken(one, 0.40f), Darken(two, 0.43f), angle);
+            Color.FromArgb(alpha, Darken(one, 0.40f)),
+            Color.FromArgb(alpha, Darken(two, 0.43f)), angle);
         g.FillRectangle(fill, ClientRectangle);
-        using var veil = new SolidBrush(Color.FromArgb(75, 5, 11, 27));
+        using var veil = new SolidBrush(Color.FromArgb(
+            (int)(75f * layerOpacity), 5, 11, 27));
         g.FillRectangle(veil, ClientRectangle);
     }
 
