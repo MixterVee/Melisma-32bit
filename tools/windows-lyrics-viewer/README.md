@@ -1,4 +1,73 @@
-# Melisma Universal — Windows v0.6.1 (test build)
+# Melisma Universal — Windows v0.6.2 (test build)
+
+## Fix: follow the working Android TV Melisma lyrics pipeline
+
+Windows v0.6/v0.6.1 searched sources in series and could silently lose
+genuinely timed lyrics. This version ports key architecture from the Android
+Melisma v2.11.0 app rather than inventing another heuristic.
+
+- **Ask all accessible lyric providers in parallel**, not one after another:
+  **lrc.red**, **AMLL TTML DB**, **Better Lyrics TTML/QQ**, and **LRCLIB**.
+  Each has a 12-second timeout so one unavailable server cannot block another.
+- **Direct lrc.red support**, ported from Android's LrcRedProvider:
+  search the song and primary artist, rank the returned recording matches
+  with Android-style title/artist/duration scoring, retrieve by **ISRC**
+  and parse the genuine word/syllable-timed TTML. The public source often
+  contains songs absent from AMLL.
+- **Quality ranking** follows Android's key rules: real word timing beats
+  line timing; at least half of the vocal lines must be word-timed, and
+  fragments with fewer than 60% of the fullest answer's lines are demoted.
+  For otherwise comparable sources, lrc.red takes priority over AMLL, then
+  Better Lyrics, then LRCLIB.
+- **No fabricated timings.** Songs that have only actual line timestamps
+  continue showing line-synced lyrics.
+- **Source details…** button reports the exact Foobar2000 title, artist,
+  album, duration, the result of every queried provider (including errors
+  and timeouts), and which source was selected. This enables diagnosing
+  metadata problems without guessing.
+- lrc.red requires visible attribution. When it supplies the lyrics, the
+  TV lyrics view includes **Lyrics: lrc.red · https://lrc.red**.
+- Improved QQ QRC decoding: can recover the timed lyric text even when
+  the returned XML wrapper is malformed.
+- Preserves the original foobar2000 Bridge synchronization, saved lyric
+  delay, Cinema layouts, seamless backgrounds, artwork transitions and
+  full-screen Living screensaver.
+
+### How to verify the coverage fix
+
+1. Keep v0.6.1 as a backup. Download and extract the v0.6.2 Windows x64 ZIP
+   to a **new folder**, then start foobar2000 and the viewer.
+2. Play **Blinding Lights — The Weeknd**, **Shape of You — Ed Sheeran**, or
+   **Shake It Off — Taylor Swift**. A live GitHub runner found real timed
+   TTML for these three songs through lrc.red.
+3. Check the controller status: it should say **Word-synced · lrc.red**
+   (or another genuine word-timed source). Pause and seek to test that the
+   highlighting tracks the existing Foobar2000 timeline.
+4. Click **Source details…**. It should show the real metadata being sent
+   to the lyric providers, each provider's result, and the selected source.
+5. Re-test five previously line-synced tracks. If any remain line-synced,
+   inspect **Source details…** rather than retrying unknown settings.
+6. Verify lyrics and Cinema still display correctly on the TV, including
+   full-screen Living during long pauses and saved +100/-100ms adjustments.
+
+### What is—and is not—ported from Android
+
+The **parallel provider design**, **word-first ranking**, **matching score**
+and **lrc.red ISRC path** are grounded in Melisma Android TV's source.
+Windows still does not have every Android provider and feature: NetEase YRC,
+Apple Music account-backed lyrics, Spotify token-backed lyrics,
+Musixmatch, language annotations, full provider selection/order settings
+and the cross-device lyric cache remain future work.
+
+The free Better Lyrics API returns **401 on some uncached songs**, including
+its QQ route. It is only an additional source, not relied upon for coverage.
+
+Android source references:
+- https://github.com/MelismaApp/melisma/blob/v2.11.0/app/src/main/java/com/melisma/app/lyrics/LyricsRepository.kt
+- https://github.com/MelismaApp/melisma/blob/v2.11.0/app/src/main/java/com/melisma/app/lyrics/provider/LrcRedProvider.kt
+- https://github.com/MelismaApp/melisma/blob/v2.11.0/app/src/main/java/com/melisma/app/lyrics/provider/LyricsProvider.kt
+
+## Retained from v0.6.1
 
 ## Fix: vastly overrestrictive v0.6 word-lyrics matching
 
