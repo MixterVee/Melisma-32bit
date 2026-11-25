@@ -51,8 +51,11 @@ std::uint64_t g_generation = 0;
 void writeField(char (&buffer)[256], const pfc::string8& value) noexcept {
     std::memset(buffer, 0, sizeof(buffer));
     const char* data = value.c_str();
-    if (data) std::memcpy(buffer, data,
-        std::min(std::strlen(data), sizeof(buffer) - 1));
+    if (data) {
+        const std::size_t length = std::strlen(data);
+        std::memcpy(buffer, data,
+            length < sizeof(buffer) - 1 ? length : sizeof(buffer) - 1);
+    }
 }
 
 void publishMetadata(metadb_handle_ptr track) noexcept {
