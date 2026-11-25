@@ -40,7 +40,7 @@ internal sealed class LyricsController : Form
     private readonly MelismaDisplaySettings _display = MelismaDisplaySettings.Load();
     private readonly PlaybackIdleBackground _idleBackground = new();
     private MelismaDisplaySettingsForm? _settingsWindow;
-    private readonly System.Windows.Forms.Timer _screenTimer = new() { Interval = 55 };
+    private readonly System.Windows.Forms.Timer _screenTimer = new() { Interval = 25 };
     private readonly System.Windows.Forms.Timer _mediaTimer = new() { Interval = 1200 };
     private readonly Label _trackLabel = Label(18, Color.White, true);
     private readonly Label _statusLabel = Label(10, Color.FromArgb(126, 225, 223));
@@ -86,7 +86,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.7";
+        Text = "Melisma Universal · Windows v0.6.8";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -179,7 +179,7 @@ internal sealed class LyricsController : Form
         grid.Controls.Add(_preview, 0, 3);
 
         // Keep the footer quiet: it only changes when the selected song or
-        // the user's timing adjustment changes, never on the 55 ms paint tick.
+        // the user's timing adjustment changes, never on the animation paint tick.
         _infoLabel.Dock = DockStyle.Fill;
         _infoLabel.Text = "Lyrics delay: 0 ms";
         grid.Controls.Add(_infoLabel, 0, 4);
@@ -815,7 +815,7 @@ internal sealed class LyricsController : Form
     {
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd(
-            "MelismaWindows/0.6.7 (Windows; https://github.com/MixterVee/Melisma-32bit)");
+            "MelismaWindows/0.6.8 (Windows; https://github.com/MixterVee/Melisma-32bit)");
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         return client;
     }
@@ -1301,8 +1301,11 @@ internal sealed class LyricsCanvas : Control
             // creating the visibly doubled/overlapping letters in Edamame.
             // Exclude the active word from the normal row paint, then
             // render that one word at its measured position.
+            // Do not delay the beginning of word growth until 70% of the
+            // line scroll animation: that gate suddenly switched from the
+            // base font to the enlarged overlay mid-word (a visible pop).
             AnimatedWord? animated = _display.GrowActiveWord &&
-                index == active && emphasis >= 0.70f
+                index == active
                     ? LocateAnimatedWord(layout, line, frame.LyricPositionMs)
                     : null;
             DrawLayout(g, layout, y, playedCharacters.HasValue ? Other : color,
@@ -1797,7 +1800,7 @@ internal sealed class LyricsCanvas : Control
     {
         var focus = ActiveWordPulse.At(line.Words, playbackMs,
             _display.SimpleMode);
-        if (!focus.HasValue || focus.Value.Scale < 1.006f ||
+        if (!focus.HasValue ||
             line.Words is not { Count: > 0 } words ||
             string.Concat(words.Select(w => w.Text)) != line.Text)
             return null;
@@ -2008,7 +2011,7 @@ internal sealed class LyricsCanvas : Control
 internal sealed class KaraokeDisplay : Form
 {
     private readonly LyricsCanvas _canvas;
-    private readonly System.Windows.Forms.Timer _timer = new() { Interval = 55 };
+    private readonly System.Windows.Forms.Timer _timer = new() { Interval = 25 };
 
     public KaraokeDisplay(Screen screen, Func<LyricFrame> frame, AlbumArtworkState artwork,
         MelismaDisplaySettings display, PlaybackIdleBackground idleBackground)
