@@ -402,26 +402,48 @@ internal sealed class LyricsController : Form
         {
             var session = _manager.GetSessions().FirstOrDefault(s =>
                 s.SourceAppUserModelId.Contains("foobar", StringComparison.OrdinalIgnoreCase));
-            if (session == null)
+            if (session != null)
+            {
+                try { CaptureWindowsTimeline(session); }
+                catch (Exception ex) when (ex is InvalidOperationException or
+                            System.Runtime.InteropServices.COMException)
+                {
+                    _windowsTimelineValid = false;
+                }
+            }
+            else
             {
                 _windowsState = 0;
                 _windowsTimelineValid = false;
-                _notice = "Waiting for Foobar2000. Start playing a song.";
+            }
+            var props = session == null ? null : await session.TryGetMediaPropertiesAsync();
+
+            // The native bridge identifies the actual Foobar track.
+            // Windows GSMTC can publish an incomplete artist/album or lag
+            // behind the Foobar track-change generation.
+            bool nativeCurrent = _nativeTags.TryRead(out var tags) &&
+                tags.Generation == _lastFoobarTrackGeneration &&
+                !string.IsNullOrWhiteSpace(tags.Title);
+            string title = nativeCurrent ? tags.Title : (props?.Title ?? "").Trim();
+            string artist = nativeCurrent && tags.Artist.Length > 0
+                ? tags.Artist : (props?.Artist ?? "").Trim();
+            string album = nativeCurrent && tags.Album.Length > 0
+                ? tags.Album : (props?.AlbumTitle ?? "").Trim();
+            if (title.Length == 0)
+            {
+                _notice = "Waiting for Foobar2000 song metadata.";
                 return;
             }
-            try { CaptureWindowsTimeline(session); }
-            catch (Exception ex) when (ex is InvalidOperationException or
-                        System.Runtime.InteropServices.COMException)
-            {
-                _windowsTimelineValid = false;
-            }
-            var props = await session.TryGetMediaPropertiesAsync();
-            if (props == null) return;
-            var title = (props.Title ?? "").Trim();
-            var artist = (props.Artist ?? "").Trim();
-            if (title.Length == 0) return;
-            var album = (props.AlbumTitle ?? "").Trim();
-            if (title == _song && artist == _artist && album == _album) return;
+
+            // Read duration from Foobar directly before constructing the
+            // provider request; zero-duration GSMTC is not authoritative.
+            if (_bridge.TryRead(out var live) && live.DurationMs > 0 &&
+                (!nativeCurrent || live.Generation == tags.Generation))
+                _durationMs = (long)live.DurationMs;
+
+            if (title == _song && artist == _artist && album == _album &&
+                _lastLoadedGeneration == _lastFoobarTrackGeneration) return;
+            _lastLoadedGeneration = _lastFoobarTrackGeneration;
             _song = title; _artist = artist; _album = album;
             _loadedFor = title + "|" + artist + "|" + album + "|" + _durationMs;
             // Keep the previous cover displayed until the replacement arrives.
@@ -429,7 +451,12 @@ internal sealed class LyricsController : Form
             // instead of the selected old-cover-to-new-cover crossfade.
             int artworkRequest = ++_artworkRequestId;
             _artworkStatus = "Looking for artwork";
-            _ = LoadArtworkAsync(props.Thumbnail, title, artist, album,
+            // Keep the crossfade, but never show GSMTC's previous cover
+            // against metadata from the next native Foobar track.
+            var thumbnail = props != null &&
+                string.Equals((props.Title ?? "").Trim(), title,
+                    StringComparison.OrdinalIgnoreCase) ? props.Thumbnail : null;
+            _ = LoadArtworkAsync(thumbnail, title, artist, album,
                 _durationMs, _loadedFor, artworkRequest);
             _trackLabel.Text = title + "  —  " + artist;
             _offsetMs = _offsets.Read(title, artist, album);
