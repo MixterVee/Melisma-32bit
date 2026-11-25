@@ -154,6 +154,7 @@ internal static class ParserSmokeTests
         Check(!PlaybackClockHealth.Fresh(10000, 10500),
             "Invalid future bridge timestamp rejected");
 
+        CoverageTests.Run(Check);
         Console.WriteLine($"PASS: {_passed} lyric parser checks.");
     }
 }
