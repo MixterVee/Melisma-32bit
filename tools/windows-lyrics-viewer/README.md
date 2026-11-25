@@ -1,4 +1,65 @@
-# Melisma Universal — Windows v0.6.6 (test build)
+# Melisma Universal — Windows v0.6.7 (test build)
+
+## Fix: doubled word animation and slow lyric appearance
+
+The user recorded **Edamame — bbno$, Rich Brian** in v0.6.6.
+The video exposed words that looked **doubled or collided** while their
+Android-style growth animation was active, and the user reported that
+lyrics did not appear until ~15–20 seconds after singing began.
+
+### Correctly render active words only once
+
+- v0.6.6 painted the entire synchronized lyric line normally and then
+  drew the same active word again at an enlarged size on top. This
+  produced visible extra letters and overlapping words.
+- v0.6.7 first identifies the current timed word and its precise row/
+  character positions, excludes its original glyph region from the
+  normal text paint, and **draws the enlarged word only once**.
+- Word position uses the same measured full-row coordinates as the
+  baseline, reducing kerning-related drift. Wrap positions stay fixed.
+- The old cyan word fill, real Foobar2000 timestamps, pause/seek and
+  per-song timing offsets are untouched.
+- **Display… → Lyrics display → Enlarge sung word (Android style)**
+  still switches the grow effect on/off. Turn it off if you want only
+  the reliable cyan highlighting.
+
+### Display lyrics immediately when a provider answers
+
+- Older builds asked all providers concurrently **but waited for all of
+  them to finish before displaying any lyrics**. A slow service (or
+  12-second timeout) could hold up usable lyrics already returned by
+  LRCLIB, lrc.red or NetEase.
+- v0.6.7 reports and displays the **first available valid lyric result**
+  as soon as it is returned. Remaining provider requests continue.
+- If another source later provides more complete *genuine word timing*,
+  the current lyrics upgrade automatically using the existing source
+  ranking and missing-intro repair; no word durations are invented.
+- Searches from a previous song are cancelled on track change.
+- **Sources…** now shows the number of providers completed and
+  **"First playable lyrics displayed after N seconds"**, so network
+  delays can be distinguished from missing first-verse timestamps.
+- Note: this fixes **lookup-related lateness**, not a lyric file that
+  genuinely has no timestamps for its opening verse. The existing
+  LRCLIB intro merge and completeness checks still address those cases.
+
+### Test this version
+
+1. Keep v0.6.6 as a backup. Extract v0.6.7 into a new folder and run
+   the new executable while foobar2000 plays **Edamame**.
+2. Watch the animated current word. It should be **one readable word**
+   growing gently, not normal and enlarged copies overlapping.
+3. Turn "Enlarge sung word" off and back on to compare. Both modes
+   should keep exactly the same syllable timing.
+4. Restart the track. Lyrics should now appear as soon as a provider
+   answers instead of waiting for the slowest of five providers.
+5. Click **Sources…** after the lookup completes. The diagnostic
+   report includes first-result latency, all provider outcomes,
+   selected source and earliest lyric timestamps. A genuinely late
+   first cue can be investigated separately from network response time.
+6. Verify pause/resume and seeking, seamless Cinema, album cover,
+   second-screen rendering and Living idle takeover.
+
+## Retained from v0.6.6
 
 ## Fixes: no flickering footer, readable NetEase words, animated active syllables
 
