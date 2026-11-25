@@ -1,4 +1,4 @@
-// Melisma Foobar2000 Bridge v0.1
+// Melisma Foobar2000 Bridge v0.2
 // Read-only playback timeline for local Windows karaoke. No audio modifications,
 // playback commands, network listeners, filesystem or registry access.
 // Foobar2000 SDK playback_control requires the main thread. The Win32 timer
@@ -8,9 +8,12 @@
 #include <cstdint>
 #include <cmath>
 #include <cstddef>
+#include <algorithm>
+#include <cstring>
 
 namespace {
 constexpr wchar_t kMappingName[] = L"Local\\MelismaFoobarBridge_v1";
+constexpr wchar_t kMetaName[] = L"Local\\MelismaFoobarMetadata_v1";
 constexpr std::uint32_t kMagic = 0x4D454C49; // "MELI"
 constexpr std::uint32_t kVersion = 1;
 
@@ -29,10 +32,49 @@ static_assert(offsetof(BridgeSnapshot, durationUs) == 24);
 static_assert(offsetof(BridgeSnapshot, tickMs) == 32);
 static_assert(sizeof(BridgeSnapshot) == 48);
 
+struct alignas(8) MetadataSnapshot {
+    std::uint32_t magic, version;
+    volatile LONG sequence;
+    LONG reserved;
+    std::uint64_t generation;
+    char title[256], artist[256], album[256];
+};
+static_assert(sizeof(MetadataSnapshot) == 792);
+static_assert(offsetof(MetadataSnapshot, artist) == 280);
+HANDLE g_metaMapping = nullptr;
+MetadataSnapshot* g_meta = nullptr;
 HANDLE g_mapping = nullptr;
 BridgeSnapshot* g_shared = nullptr;
 UINT_PTR g_timer = 0;
 std::uint64_t g_generation = 0;
+
+void writeField(char (&buffer)[256], const pfc::string8& value) noexcept {
+    std::memset(buffer, 0, sizeof(buffer));
+    const char* data = value.c_str();
+    if (data) std::memcpy(buffer, data,
+        std::min(std::strlen(data), sizeof(buffer) - 1));
+}
+
+void publishMetadata(metadb_handle_ptr track) noexcept {
+    if (!g_meta) return;
+    pfc::string8 title, artist, album;
+    try {
+        if (!track.is_empty()) {
+            track->format_title_legacy(nullptr, title, "[%title%]", nullptr);
+            track->format_title_legacy(nullptr, artist, "[%artist%]", nullptr);
+            track->format_title_legacy(nullptr, album, "[%album%]", nullptr);
+        }
+    } catch (...) {}
+    InterlockedIncrement(&g_meta->sequence);
+    MemoryBarrier();
+    g_meta->generation = g_generation;
+    writeField(g_meta->title, title);
+    writeField(g_meta->artist, artist);
+    writeField(g_meta->album, album);
+    MemoryBarrier();
+    InterlockedIncrement(&g_meta->sequence);
+}
+
 
 void publishFromFoobar() noexcept {
     if (g_shared == nullptr) return;
@@ -74,10 +116,16 @@ VOID CALLBACK timerProc(HWND, UINT, UINT_PTR id, DWORD) {
 
 class track_events final : public play_callback_impl_base {
 public:
-    track_events() : play_callback_impl_base(play_callback::flag_on_playback_new_track) {}
-    void on_playback_new_track(metadb_handle_ptr) override {
+    track_events() : play_callback_impl_base(
+        play_callback::flag_on_playback_new_track |
+        play_callback::flag_on_playback_edited) {}
+    void on_playback_new_track(metadb_handle_ptr track) override {
         ++g_generation;
+        publishMetadata(track);
         publishFromFoobar();
+    }
+    void on_playback_edited(metadb_handle_ptr track) override {
+        publishMetadata(track);
     }
 };
 track_events* g_trackEvents = nullptr;
@@ -115,13 +163,41 @@ public:
         g_shared->magic = kMagic;
         g_shared->version = kVersion;
         g_shared->durationUs = -1;
+
+        // New optional metadata side-channel; original timeline layout
+        // remains byte-for-byte backward-compatible with bridge v0.1.
+        g_metaMapping = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr,
+            PAGE_READWRITE, 0, sizeof(MetadataSnapshot), kMetaName);
+        if (g_metaMapping) {
+            bool existed = GetLastError() == ERROR_ALREADY_EXISTS;
+            if (!existed) {
+                g_meta = static_cast<MetadataSnapshot*>(MapViewOfFile(
+                    g_metaMapping, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(MetadataSnapshot)));
+                if (g_meta) {
+                    ZeroMemory(g_meta, sizeof(*g_meta));
+                    g_meta->magic = 0x4D455441; // META
+                    g_meta->version = 1;
+                }
+            }
+            if (!g_meta) {
+                CloseHandle(g_metaMapping);
+                g_metaMapping = nullptr;
+            }
+        }
         g_trackEvents = new track_events();
+        try {
+            metadb_handle_ptr playing;
+            if (playback_control::get()->get_now_playing(playing)) {
+                ++g_generation;
+                publishMetadata(playing);
+            }
+        } catch (...) {}
         // SetTimer(NULL) is delivered on THIS thread's message queue, the
         // foobar2000 main thread. Playback SDK is never called from a worker.
         g_timer = SetTimer(nullptr, 0, 100, timerProc);
         if (g_timer == 0) console::print("foo_melisma_bridge: timer setup failed");
         publishFromFoobar();
-        console::print("foo_melisma_bridge: read-only timeline bridge ready");
+        console::print("foo_melisma_bridge: read-only timing and track tags ready");
     }
     void on_quit() override {
         if (g_timer) { KillTimer(nullptr, g_timer); g_timer = 0; }
@@ -129,6 +205,8 @@ public:
         g_trackEvents = nullptr;
         if (g_shared) { UnmapViewOfFile(g_shared); g_shared = nullptr; }
         if (g_mapping) { CloseHandle(g_mapping); g_mapping = nullptr; }
+        if (g_meta) { UnmapViewOfFile(g_meta); g_meta = nullptr; }
+        if (g_metaMapping) { CloseHandle(g_metaMapping); g_metaMapping = nullptr; }
     }
 };
 static initquit_factory_t<bridge_lifecycle> g_lifecycle;
@@ -136,8 +214,8 @@ static initquit_factory_t<bridge_lifecycle> g_lifecycle;
 
 DECLARE_COMPONENT_VERSION(
     "Melisma Foobar2000 Bridge",
-    "0.1.0",
-    "Read-only, local shared-memory playback timing for Melisma Karaoke.\n"
-    "Reports elapsed position, duration, pause and track changes. "
+    "0.2.0",
+    "Read-only Foobar playback timing and metadata for Melisma Karaoke.\n"
+    "Reports position, duration, title, artist, album and track changes. "
     "Never modifies audio, playlists or playback.");
 VALIDATE_COMPONENT_FILENAME("foo_melisma_bridge.dll");
