@@ -1,4 +1,44 @@
-# Melisma Universal — Windows v0.6.3 (test build)
+# Melisma Universal — Windows v0.6.4 (test build)
+
+## Fix: word-timed songs with missing opening verses
+
+Your v0.6.3 screenshots proved the foobar2000 native playback clock was
+healthy at 00:24 while the active lyric was **None**. A live source probe
+found that the selected **Blinding Lights** TTML begins only at **01:00.964**,
+and **Shake It Off** begins at **01:00.290**. AMLL and Better Lyrics supplied
+similarly abbreviated documents. The earlier lyrics were missing from those
+sources; the viewer was not frozen.
+
+v0.6.4:
+- Compares the first cue in every word-timed source with the LRCLIB
+  line-timed document. Prefer a word provider that covers the first verse
+  instead of a preferred provider that omits it.
+- When a good word-timed document begins mid-song and LRCLIB has two or more
+  earlier cues, insert only its **line-timed opening lyrics** before the
+  word-timed first cue. Preserve all genuine TTML words and timestamps later.
+- Never manufacture timestamps or claim that the restored opening verse
+  has word-level timing. Status identifies **Word-synced + line-timed intro**.
+- Source details reports the **first lyric cue time** for each provider and
+  the number of early LRCLIB lines added when this repair was needed.
+- Keep the **lrc.red attribution** when its words are used in the mixed source.
+- Keep v0.6.3's healthy bridge clock, Cinema, Living, background, artwork
+  transitions, and saved lyric timing offsets.
+
+### Test
+
+1. Extract v0.6.4 into a separate folder. Keep v0.6.3 as your backup.
+2. Play **Blinding Lights — The Weeknd** and inspect **Source details…**.
+   The report should show a word-timed first cue around 01:00 and a line-timed
+   earlier LRCLIB cue, plus the message **Intro coverage repaired**.
+3. At ~00:24, a lyric should now be active and follow the first verse, instead
+   of displaying the inactive chorus.
+4. From ~01:01, the original genuine word-level progress should take over.
+   Pause, resume and seek to verify alignment.
+5. Try **Shake It Off** (also a missing-first-minute word source) and
+   **Shape of You** (starts near 00:10 and should need no repair).
+6. Verify the clean second-screen lyric display and Living idle fade.
+
+## Retained from v0.6.3
 
 ## New: playback-clock diagnostics and stale bridge recovery
 
