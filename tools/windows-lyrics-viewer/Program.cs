@@ -1211,15 +1211,20 @@ internal sealed class LyricsCanvas : Control
                 }
                 playedCharacters = Math.Clamp(count, 0f, line.Text.Length);
             }
+            // Paint the animated word ONCE. v0.6.6 first painted the
+            // complete line and then painted the larger word over itself,
+            // creating the visibly doubled/overlapping letters in Edamame.
+            // Exclude the active word from the normal row paint, then
+            // render that one word at its measured position.
+            AnimatedWord? animated = _display.GrowActiveWord &&
+                index == active && emphasis >= 0.70f
+                    ? LocateAnimatedWord(layout, line, frame.LyricPositionMs)
+                    : null;
             DrawLayout(g, layout, y, playedCharacters.HasValue ? Other : color,
-                playedCharacters, emphasis, edgeOpacity);
-            // Android-inspired active syllable/word emphasis. Paint just the
-            // current timed word as a small, gently growing overlay. Never
-            // resize the underlying line or recalculate its row positions.
-            if (_display.GrowActiveWord && index == active &&
-                emphasis >= 0.70f && line.Words is { Count: > 0 })
+                playedCharacters, emphasis, edgeOpacity, animated);
+            if (animated.HasValue)
                 DrawActiveWordOverlay(g, layout, y, line,
-                    frame.LyricPositionMs, emphasis, edgeOpacity);
+                    animated.Value, emphasis, edgeOpacity);
         }
         g.Restore(textClip);
         DrawSourceCredit(g, frame);
@@ -1698,69 +1703,78 @@ internal sealed class LyricsCanvas : Control
         DrawLayout(g, layout, y, color, null, 1f);
     }
 
-    private void DrawActiveWordOverlay(Graphics g, TextLayout layout,
-        float centerY, LrcLine line, long playbackMs,
-        float emphasis, float opacity)
+    private readonly record struct AnimatedWord(
+        int RowIndex, int Start, int End, int WordIndex,
+        ActiveWordPulse.Focus Pulse);
+
+    private AnimatedWord? LocateAnimatedWord(
+        TextLayout layout, LrcLine line, long playbackMs)
     {
         var focus = ActiveWordPulse.At(line.Words, playbackMs,
             _display.SimpleMode);
         if (!focus.HasValue || focus.Value.Scale < 1.006f ||
-            line.Words is not { Count: > 0 } words) return;
-
-        // Character boundaries must agree EXACTLY with the source text.
-        // Never overlay a word in the wrong place because provider spacing
-        // differed from the line's text or line wrapping changed.
-        if (string.Concat(words.Select(w => w.Text)) != line.Text)
-            return;
+            line.Words is not { Count: > 0 } words ||
+            string.Concat(words.Select(w => w.Text)) != line.Text)
+            return null;
 
         int index = focus.Value.WordIndex;
         string rawWord = words[index].Text;
-        string wordText = rawWord.Trim();
+        string visible = rawWord.Trim();
+        if (visible.Length == 0) return null;
+
+        int prefix = 0;
+        for (int i = 0; i < index; i++) prefix += words[i].Text.Length;
+        int start = prefix + (rawWord.Length - rawWord.TrimStart().Length);
+        int end = start + visible.Length;
+        for (int row = 0; row < layout.Rows.Count; row++)
+        {
+            var visual = layout.Rows[row];
+            if (start >= visual.Start && end <= visual.Start + visual.Text.Length)
+                return new AnimatedWord(row, start, end, index, focus.Value);
+        }
+        return null;
+    }
+
+    private void DrawActiveWordOverlay(Graphics g, TextLayout layout,
+        float centerY, LrcLine line, AnimatedWord active,
+        float emphasis, float opacity)
+    {
+        if (line.Words is not { Count: > 0 } words) return;
+        string wordText = words[active.WordIndex].Text.Trim();
         if (wordText.Length == 0) return;
-
-        int preceding = 0;
-        for (int i = 0; i < index; i++) preceding += words[i].Text.Length;
-        int wordStart = preceding + (rawWord.Length - rawWord.TrimStart().Length);
-        int wordEnd = wordStart + wordText.Length;
-
-        // The regular line renderer already keeps wraps stable. Only overlay
-        // a fully contained word within one visual row. When a very long
-        // word itself crosses rows, leave its cyan fill unmodified.
-        var visualRow = layout.Rows.FirstOrDefault(row =>
-            wordStart >= row.Start && wordEnd <= row.Start + row.Text.Length);
-        if (visualRow == null) return;
+        var visualRow = layout.Rows[active.RowIndex];
 
         float fontFactor = _display.SimpleMode
             ? 0.84f + 0.16f * Math.Clamp(emphasis, 0f, 1f)
             : 0.67f + 0.33f * Math.Clamp(emphasis, 0f, 1f);
-
         using var baseFont = new Font(_display.FontFamily,
             layout.Font.SizeInPoints * fontFactor,
             emphasis >= 0.5f ? FontStyle.Bold : FontStyle.Regular,
             GraphicsUnit.Point);
         using var grownFont = new Font(_display.FontFamily,
-            baseFont.SizeInPoints * focus.Value.Scale,
+            baseFont.SizeInPoints * active.Pulse.Scale,
             baseFont.Style, GraphicsUnit.Point);
 
         float top = centerY - layout.TotalHeight / 2f;
-        int rowIndex = layout.Rows.IndexOf(visualRow);
-        if (rowIndex < 0) return;
         float width = Math.Max(1f, LyricsArea.Width - 2f * SidePadding);
         var rect = new RectangleF(LyricsArea.Left + SidePadding,
-            top + rowIndex * layout.RowHeight, width, layout.RowHeight);
+            top + active.RowIndex * layout.RowHeight, width, layout.RowHeight);
 
-        float entireWidth = TextWidth(g, visualRow.Text, baseFont);
-        float leadingWidth = TextWidth(g,
-            visualRow.Text[..(wordStart - visualRow.Start)], baseFont);
-        float originalWidth = TextWidth(g, wordText, baseFont);
-        float wordCenterX = rect.Left + (rect.Width - entireWidth) / 2f +
-            leadingWidth + originalWidth / 2f;
-        float largerWidth = TextWidth(g, wordText, grownFont);
-
-        float lifted = focus.Value.LiftEm * baseFont.GetHeight(g);
+        // Compute the word boundaries from the SAME measured full row that
+        // the normal lyric renderer uses, not from an independently measured
+        // word's width; otherwise kerning errors make the word drift.
+        int begin = active.Start - visualRow.Start;
+        int finish = active.End - visualRow.Start;
+        float fullWidth = TextWidth(g, visualRow.Text, baseFont);
+        float beforeWidth = TextWidth(g, visualRow.Text[..begin], baseFont);
+        float throughWidth = TextWidth(g, visualRow.Text[..finish], baseFont);
+        float originalLeft = rect.Left + (rect.Width - fullWidth) / 2f;
+        float wordCenterX = originalLeft + (beforeWidth + throughWidth) / 2f;
+        float grownWidth = TextWidth(g, wordText, grownFont);
+        float lifted = active.Pulse.LiftEm * baseFont.GetHeight(g);
         var grownRect = new RectangleF(
-            wordCenterX - largerWidth / 2f, rect.Top - lifted,
-            largerWidth + 8f, rect.Height + 2f);
+            wordCenterX - grownWidth / 2f, rect.Top - lifted,
+            grownWidth + 5f, rect.Height + 2f);
 
         using var typographic = new StringFormat(
             StringFormat.GenericTypographic)
@@ -1771,30 +1785,28 @@ internal sealed class LyricsCanvas : Control
         };
         opacity = Math.Clamp(opacity, 0f, 1f);
         using var shadow = new SolidBrush(Color.FromArgb(
-            (int)(115f * opacity), 5, 9, 18));
+            (int)(90f * opacity), 5, 9, 18));
         using var resting = new SolidBrush(Color.FromArgb(
             (int)(230f * opacity), Other));
         using var singing = new SolidBrush(Color.FromArgb(
             (int)(255f * opacity), Highlight));
 
+        // The full baseline word has been masked out in DrawLayout, so
+        // there is exactly one rendered copy of the active word.
         var shadowRect = grownRect;
-        shadowRect.Offset(0.6f, 1.0f);
+        shadowRect.Offset(0.5f, 0.8f);
         g.DrawString(wordText, grownFont, shadow, shadowRect, typographic);
         g.DrawString(wordText, grownFont, resting, grownRect, typographic);
 
-        // Retain the existing cyan fill semantics on the enlarged glyph.
-        // For actual end-timed syllables, scale and fill use the same
-        // timestamp-based progress. For onset-only lyrics, cyan snaps
-        // at the provided onset just like the base line.
         float litFraction = _display.SmoothWordFill &&
-            words[index].EndMs > words[index].AtMs
-                ? focus.Value.Progress : 1f;
+            words[active.WordIndex].EndMs > words[active.WordIndex].AtMs
+                ? active.Pulse.Progress : 1f;
         if (litFraction > 0f)
         {
             var saved = g.Save();
             g.SetClip(new RectangleF(grownRect.Left - 1f,
                 grownRect.Top - 2f,
-                largerWidth * litFraction + 2f,
+                grownWidth * litFraction + 2f,
                 grownRect.Height + 4f), CombineMode.Intersect);
             g.DrawString(wordText, grownFont, singing, grownRect, typographic);
             g.Restore(saved);
@@ -1803,7 +1815,7 @@ internal sealed class LyricsCanvas : Control
 
     private void DrawLayout(Graphics g, TextLayout layout,
         float centerY, Color color, float? playedCharacters, float emphasis,
-        float opacity = 1f)
+        float opacity = 1f, AnimatedWord? omitWord = null)
     {
         // The row breaks and reserved height remain fixed. Only the actual
         // font size/color animate, so upcoming lyrics are already wrapped.
@@ -1833,6 +1845,32 @@ internal sealed class LyricsCanvas : Control
             var row = layout.Rows[i];
             var rect = new RectangleF(LyricsArea.Left + SidePadding,
                 top + i * layout.RowHeight, width, layout.RowHeight);
+
+            // With animated word emphasis, blank its original ink area in
+            // both base and cyan layers BEFORE painting the enlarged word.
+            // The actual backdrop stays intact; only the row's text paint
+            // is clipped. This prevents the v0.6.6 double-glyph bug.
+            GraphicsState? originalWordMask = null;
+            if (omitWord is { } omitted && omitted.RowIndex == i)
+            {
+                int startChar = omitted.Start - row.Start;
+                int endChar = omitted.End - row.Start;
+                if (startChar >= 0 && endChar <= row.Text.Length &&
+                    endChar > startChar)
+                {
+                    float rowWidth = TextWidth(g, row.Text, displayFont);
+                    float rowLeft = rect.Left + (rect.Width - rowWidth) / 2f;
+                    float xStart = TextWidth(g, row.Text[..startChar], displayFont);
+                    float xEnd = TextWidth(g, row.Text[..endChar], displayFont);
+                    originalWordMask = g.Save();
+                    g.SetClip(new RectangleF(rowLeft + xStart - 1.5f,
+                        rect.Top - 5f,
+                        Math.Max(2f, xEnd - xStart + 3f),
+                        rect.Height + 10f), CombineMode.Exclude);
+                }
+            }
+            try
+            {
             if (_display.DepthBlur && emphasis < 0.5f)
             {
                 var shadowRect = new RectangleF(rect.X + 1.5f, rect.Y + 1.5f,
@@ -1872,6 +1910,12 @@ internal sealed class LyricsCanvas : Control
                 playedWidth + 2f, rect.Height), CombineMode.Intersect);
             g.DrawString(row.Text, displayFont, playedBrush, rect, format);
             g.Restore(saved);
+            }
+            finally
+            {
+                if (originalWordMask != null)
+                    g.Restore(originalWordMask);
+            }
         }
     }
 }
