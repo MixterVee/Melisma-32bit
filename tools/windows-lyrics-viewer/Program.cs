@@ -1213,6 +1213,13 @@ internal sealed class LyricsCanvas : Control
             }
             DrawLayout(g, layout, y, playedCharacters.HasValue ? Other : color,
                 playedCharacters, emphasis, edgeOpacity);
+            // Android-inspired active syllable/word emphasis. Paint just the
+            // current timed word as a small, gently growing overlay. Never
+            // resize the underlying line or recalculate its row positions.
+            if (_display.GrowActiveWord && index == active &&
+                emphasis >= 0.70f && line.Words is { Count: > 0 })
+                DrawActiveWordOverlay(g, layout, y, line,
+                    frame.LyricPositionMs, emphasis, edgeOpacity);
         }
         g.Restore(textClip);
         DrawSourceCredit(g, frame);
@@ -1689,6 +1696,109 @@ internal sealed class LyricsCanvas : Control
         using var layout = MakeLayout(g, text, points, bold,
             Math.Max(1f, LyricsArea.Width - 2f * SidePadding));
         DrawLayout(g, layout, y, color, null, 1f);
+    }
+
+    private void DrawActiveWordOverlay(Graphics g, TextLayout layout,
+        float centerY, LrcLine line, long playbackMs,
+        float emphasis, float opacity)
+    {
+        var focus = ActiveWordPulse.At(line.Words, playbackMs,
+            _display.SimpleMode);
+        if (!focus.HasValue || focus.Value.Scale < 1.006f ||
+            line.Words is not { Count: > 0 } words) return;
+
+        // Character boundaries must agree EXACTLY with the source text.
+        // Never overlay a word in the wrong place because provider spacing
+        // differed from the line's text or line wrapping changed.
+        if (string.Concat(words.Select(w => w.Text)) != line.Text)
+            return;
+
+        int index = focus.Value.WordIndex;
+        string rawWord = words[index].Text;
+        string wordText = rawWord.Trim();
+        if (wordText.Length == 0) return;
+
+        int preceding = 0;
+        for (int i = 0; i < index; i++) preceding += words[i].Text.Length;
+        int wordStart = preceding + (rawWord.Length - rawWord.TrimStart().Length);
+        int wordEnd = wordStart + wordText.Length;
+
+        // The regular line renderer already keeps wraps stable. Only overlay
+        // a fully contained word within one visual row. When a very long
+        // word itself crosses rows, leave its cyan fill unmodified.
+        var visualRow = layout.Rows.FirstOrDefault(row =>
+            wordStart >= row.Start && wordEnd <= row.Start + row.Text.Length);
+        if (visualRow == null) return;
+
+        float fontFactor = _display.SimpleMode
+            ? 0.84f + 0.16f * Math.Clamp(emphasis, 0f, 1f)
+            : 0.67f + 0.33f * Math.Clamp(emphasis, 0f, 1f);
+
+        using var baseFont = new Font(_display.FontFamily,
+            layout.Font.SizeInPoints * fontFactor,
+            emphasis >= 0.5f ? FontStyle.Bold : FontStyle.Regular,
+            GraphicsUnit.Point);
+        using var grownFont = new Font(_display.FontFamily,
+            baseFont.SizeInPoints * focus.Value.Scale,
+            baseFont.Style, GraphicsUnit.Point);
+
+        float top = centerY - layout.TotalHeight / 2f;
+        int rowIndex = layout.Rows.IndexOf(visualRow);
+        if (rowIndex < 0) return;
+        float width = Math.Max(1f, LyricsArea.Width - 2f * SidePadding);
+        var rect = new RectangleF(LyricsArea.Left + SidePadding,
+            top + rowIndex * layout.RowHeight, width, layout.RowHeight);
+
+        float entireWidth = TextWidth(g, visualRow.Text, baseFont);
+        float leadingWidth = TextWidth(g,
+            visualRow.Text[..(wordStart - visualRow.Start)], baseFont);
+        float originalWidth = TextWidth(g, wordText, baseFont);
+        float wordCenterX = rect.Left + (rect.Width - entireWidth) / 2f +
+            leadingWidth + originalWidth / 2f;
+        float largerWidth = TextWidth(g, wordText, grownFont);
+
+        float lifted = focus.Value.LiftEm * baseFont.GetHeight(g);
+        var grownRect = new RectangleF(
+            wordCenterX - largerWidth / 2f, rect.Top - lifted,
+            largerWidth + 8f, rect.Height + 2f);
+
+        using var typographic = new StringFormat(
+            StringFormat.GenericTypographic)
+        {
+            Alignment = StringAlignment.Near,
+            LineAlignment = StringAlignment.Center,
+            FormatFlags = StringFormatFlags.NoWrap
+        };
+        opacity = Math.Clamp(opacity, 0f, 1f);
+        using var shadow = new SolidBrush(Color.FromArgb(
+            (int)(115f * opacity), 5, 9, 18));
+        using var resting = new SolidBrush(Color.FromArgb(
+            (int)(230f * opacity), Other));
+        using var singing = new SolidBrush(Color.FromArgb(
+            (int)(255f * opacity), Highlight));
+
+        var shadowRect = grownRect;
+        shadowRect.Offset(0.6f, 1.0f);
+        g.DrawString(wordText, grownFont, shadow, shadowRect, typographic);
+        g.DrawString(wordText, grownFont, resting, grownRect, typographic);
+
+        // Retain the existing cyan fill semantics on the enlarged glyph.
+        // For actual end-timed syllables, scale and fill use the same
+        // timestamp-based progress. For onset-only lyrics, cyan snaps
+        // at the provided onset just like the base line.
+        float litFraction = _display.SmoothWordFill &&
+            words[index].EndMs > words[index].AtMs
+                ? focus.Value.Progress : 1f;
+        if (litFraction > 0f)
+        {
+            var saved = g.Save();
+            g.SetClip(new RectangleF(grownRect.Left - 1f,
+                grownRect.Top - 2f,
+                largerWidth * litFraction + 2f,
+                grownRect.Height + 4f), CombineMode.Intersect);
+            g.DrawString(wordText, grownFont, singing, grownRect, typographic);
+            g.Restore(saved);
+        }
     }
 
     private void DrawLayout(Graphics g, TextLayout layout,
