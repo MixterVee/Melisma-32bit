@@ -29,6 +29,14 @@ foreach (var song in songs)
 
     try
     {
+        var red = await LrcRedWordProvider.FindAsync(
+            client, song.Title, song.Artist, song.Duration, CancellationToken.None);
+        Console.WriteLine($"  lrc.red application result: {(red == null ? "none" : $"{red.Count} lines, {red.Count(x => x.Words is { Count: > 1 })} word-timed")}");
+    }
+    catch (Exception ex) { Console.WriteLine($"  lrc.red application exception: {ex.GetType().Name}: {ex.Message}"); }
+
+    try
+    {
         var amll = await AmllWordProvider.FindAsync(client, song.Title, song.Artist, CancellationToken.None);
         Console.WriteLine($"  AMLL application result: {(amll == null ? "none" : $"{amll.Count} lines, {amll.Count(x => x.Words is { Count: > 1 })} word-timed")}");
     }
