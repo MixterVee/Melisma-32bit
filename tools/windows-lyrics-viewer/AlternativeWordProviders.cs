@@ -144,6 +144,10 @@ internal static class QrcWordParser
         else body = xml;
 
         if (body.Length == 0) return [];
+        // XML normalizes literal line breaks in attribute values to spaces.
+        // Reconstitute QRC headers rather than losing most lyrics at Split.
+        body = Regex.Replace(body,
+            @"(?=\[(?:\d+,\d+|[A-Za-z]+:))", "\n");
         var entries = new List<LrcLine>();
         string? headerTitle = null, headerArtist = null;
         foreach (string raw in body.Replace("\r", "").Split('\n'))
