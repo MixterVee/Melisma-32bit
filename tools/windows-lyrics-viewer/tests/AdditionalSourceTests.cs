@@ -23,6 +23,25 @@ internal static class AdditionalSourceTests
         check(WordTimedLyrics.HasWordTimings(parsed),
             "NetEase YRC correctly qualifies as word timing");
 
+        // Live NetEase regression: the first 0/1000/2000ms entries in
+        // Blinding Lights are producer/composer credits, while its first
+        // genuine word-timed verse begins at approximately 23.55 seconds.
+        string withCredits = """
+            [0,500](0,200,0)制作人 : Producer
+            [1000,500](1000,200,0)作词 : Writer
+            [2000,500](2000,200,0)编曲 : Arranger
+            [23550,1200](23550,400,0)First (23950,300,0)vocal (24250,300,0)line
+            [27360,1200](27360,500,0)Next (27860,500,0)verse
+            """;
+        var withoutCredits = NeteaseYrcParser.Parse(withCredits);
+        check(withoutCredits.Count == 2,
+            "Timed NetEase metadata credits excluded from vocal lines");
+        check(withoutCredits[0].AtMs == 23550 &&
+            withoutCredits[0].Words is { Count: 3 },
+            "First genuine verse at 23.55s keeps its exact word timing");
+        check(withoutCredits[1].AtMs == 27360,
+            "Later genuine NetEase word timing remains untouched");
+
         check(OnlineArtworkProvider.IsMatch(
             "Blinding Lights", "The Weeknd", "", 201700,
             "Blinding Lights", "The Weeknd", "After Hours", 200040),
