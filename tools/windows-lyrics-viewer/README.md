@@ -1,4 +1,86 @@
-# Melisma Universal — Windows v0.6.5 (test build)
+# Melisma Universal — Windows v0.6.6 (test build)
+
+## Fixes: no flickering footer, readable NetEase words, animated active syllables
+
+v0.6.6 is an incremental build from v0.6.5, preserving the confirmed
+Foobar2000 bridge, first-verse NetEase word synchronization, on-demand
+cover artwork, Cinema background and full-screen Living screensaver.
+
+### 1. Stop flashing the playback footer
+
+The bottom controller line previously repainted its *entire WinForms Label*
+roughly every 400 milliseconds to display a moving mm:ss counter. This
+produced visible flashing/flickering in the user's screenshot, especially
+at higher DPI scaling.
+
+The stable footer now shows:
+
+- The saved lyric timing offset in milliseconds;
+- Playing/paused state and playback clock source;
+- An explicit warning if playback time is unavailable.
+
+The precise current playback position, track duration and bridge freshness
+remain accessible by clicking **Sources…** (PLAYBACK TIMING — live). The
+actual lyrics are still redrawn at the regular animation refresh rate.
+No change to the synchronized playback clock or active lyrics algorithm.
+
+### 2. Fix merged English words in NetEase YRC
+
+The screenshot demonstrated "howto", "I'mgoing", "havetoo" in the current
+NetEase lyrics. Rather than guessing where a word breaks, the app now
+cross-checks *matching text* from another fetched lyric source:
+
+- Accept a spacing reference only when all non-whitespace characters
+  match, in the same order, in a corresponding line within 12 seconds.
+- Restore the missing spaces to the affected NetEase source characters.
+- Retain the **same number of timed word tokens** and all original
+  onset and end timestamps. Cyan fill and pause/seek alignment are
+  unchanged.
+- If other providers do not contain the same lyric text, leave the
+  original word timings untouched rather than inventing lyric text.
+- Sources… reports the number of lines whose spacing was restored.
+
+### 3. Enlarge the currently sung word, like Android TV Melisma
+
+Android uses a subtle word-scale/y-lift spline that swells the *active*
+word or syllable, then settles back at the end of its timing window.
+Windows now adds this visual cue:
+
+- The active word enlarges smoothly by up to about 8.5%; Simple mode
+  uses a gentler, ~4.5% maximum.
+- The effect follows the real TTML/YRC word start/end timestamps and
+  the same cyan fill progress. Pause freezes it; seek moves it to the
+  correct word immediately. For onset-only enhanced LRC, a brief visual
+  pulse occurs at the recorded onset without modifying lyric sync.
+- **Display… → Lyrics display → Enlarge sung word (Android style)**:
+  switch on/off; enabled by default and saved with other display settings.
+- Each word is drawn as an overlay using the same fixed wrapping and
+  centered line layout. The whole line is **not repositioned** as each
+  word grows. Works on the controller and on an extended-TV display.
+- Ordinary line-timed lyrics keep their existing whole-line emphasis.
+
+### How to test
+
+1. Extract v0.6.6 to its own folder and retain v0.6.5 as your backup.
+2. Play **Blinding Lights — The Weeknd**. Confirm the bottom footer no
+   longer flashes as the song plays; the Playing/Paused text still changes
+   when appropriate. Open **Sources…** to inspect the accurate live clock.
+3. Watch the current words on your TV. The cyan-highlighted syllable
+   should gently grow and lift as it is sung, then return to normal size.
+   Pause, resume and seek; it should not drift from the singer.
+4. Confirm the previously merged English words have spaces when a matching
+   independent lyric source provides them. A few unmatched lines may
+   remain unchanged by design.
+5. Toggle **Enlarge sung word** off and on in Display settings; verify
+   turning it off stops the enlargement but NOT the cyan progression.
+6. Verify the album cover, seamless Cinema backdrop, Living idle fade,
+   saved ±100ms timing correction and second-screen layout continue working.
+
+Automated tests cover screenshot-derived spacing cases, wrong-reference
+rejection, unchanged word start/end timestamps, active word selection,
+scale progress, pause/seek and onset-only visual effects.
+
+## Retained from v0.6.5
 
 ## Improvements: missing cover art, readable controls and earlier word timing
 
