@@ -1,4 +1,22 @@
-# Melisma Universal — Windows v0.5 (test build)
+# Melisma Universal — Windows v0.5.1 (test build)
+
+## New in v0.5.1 — independent Cinema cover-art transition
+
+- **Display settings → Background → Cover art transition** adjusts the *separate Cinema album-cover panel* fade from **1 to 10 seconds**, in 0.2-second steps. Default is **3.4 seconds**, retaining the behavior of v0.5.
+- The existing **Background transition** separately adjusts the full-screen background fade, also in 0.2-second steps. For example, a 6-second background and a 2-second cover fade work independently.
+- Both settings are saved in `album-art.json` and restored when reopening Melisma. Existing v0.4/v0.5 settings files without the new cover-fade value automatically use 3.4 seconds.
+- Changes preserve the working Lyrics/Cinema layout, cover blur, lyric wrapping, Foobar2000 synchronization, quiet footer, and song-specific lyric delays.
+
+### First v0.5.1 test
+
+1. Extract v0.5.1 into a new folder. Leave working v0.5 and v0.4.2 untouched.
+2. In **Display settings → View**, select **Cinema** and show the album-cover panel.
+3. In **Background**, set **Background transition = 6.0 seconds** and **Cover art transition = 2.0 seconds**.
+4. Change to a song with different artwork. The small Cinema cover should fade in about 2 seconds while the full-window background continues fading for about 6 seconds.
+5. Try a **Cover art transition = 8.0 seconds** to confirm the small album cover now fades more slowly, independently of the background.
+6. Close/reopen the viewer and verify both values are remembered. Confirm that saved per-song timing corrections still work.
+
+## Retained from v0.5
 
 Windows 11 x64 · foobar2000 · synchronized lyrics on your laptop and second monitor
 
