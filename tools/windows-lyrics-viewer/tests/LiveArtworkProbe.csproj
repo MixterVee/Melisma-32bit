@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../WordTimedLyrics.cs" Link="WordTimedLyrics.cs" />
+    <Compile Include="../AlternativeWordProviders.cs" Link="AlternativeWordProviders.cs" />
+    <Compile Include="../LrcRedWordProvider.cs" Link="LrcRedWordProvider.cs" />
+    <Compile Include="../NetEaseWordProvider.cs" Link="NetEaseWordProvider.cs" />
+    <Compile Include="../OnlineArtworkProvider.cs" Link="OnlineArtworkProvider.cs" />
+    <Compile Include="LiveArtworkProbe.cs" />
+  </ItemGroup>
+</Project>
