@@ -105,17 +105,47 @@ internal static class LyricsSourceOrchestrator
             ["lrcred"] = 0, ["amll"] = 1, ["better"] = 2, ["lrclib"] = 3
         };
         int fullest = all.Max(a => a.Total);
+        var reference = all.FirstOrDefault(a => a.Id == "lrclib")?.Lines;
         var best = all
             .Where(a => a.Total > 0)
             .OrderByDescending(a => EffectiveTier(a, fullest))
             .ThenByDescending(a => fullest > 0 && a.Total >= fullest * 0.6)
+            // A word-timed file missing an audible first verse should lose
+            // to one with genuine timing for that verse, even if provider
+            // preference would otherwise rank it higher.
+            .ThenBy(a => a.WordTimed
+                ? LyricCoverage.MissingIntroLineCount(a.Lines, reference) : 0)
             .ThenBy(a => preference[a.Id])
             .ThenByDescending(a => a.Total)
             .FirstOrDefault();
+
         string status = string.Join(Environment.NewLine, all.Select(a =>
             $"- {a.Name}: {(a.Total > 0
-                ? $"{a.Total} lines, {a.Timed} word-timed ({(a.WordTimed ? "Word" : "Line")} tier)"
+                ? $"{a.Total} lines, {a.Timed} word-timed, " +
+                  $"first cue {TimeSpan.FromMilliseconds(a.Lines!.Min(x => x.AtMs)):mm\\:ss\\.fff} " +
+                  $"({(a.WordTimed ? "Word" : "Line")} tier)"
                 : a.Reason)}"));
+
+        if (best is { WordTimed: true, Lines: { Count: > 0 } } &&
+            reference is { Count: > 0 } && best.Id != "lrclib")
+        {
+            var (combined, introCount) = LyricCoverage.AddMissingIntro(
+                best.Lines, reference);
+            if (introCount > 0)
+            {
+                best = best with
+                {
+                    Name = best.Name + " + LRCLIB intro",
+                    Lines = combined,
+                    Reason = $"{introCount} genuine line-timed early vocal " +
+                        "cues restored from LRCLIB; later word timing unchanged"
+                };
+                status += Environment.NewLine + $"Intro coverage repaired: " +
+                    $"{introCount} early line-timed cues added from LRCLIB " +
+                    $"ahead of the word-timed {best.Id} document.";
+            }
+        }
+
         return new Lookup(best, all, status);
     }
 }
