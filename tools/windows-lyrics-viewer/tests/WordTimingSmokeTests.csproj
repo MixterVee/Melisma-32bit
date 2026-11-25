@@ -14,5 +14,6 @@
     <Compile Include="../PlaybackClockHealth.cs" Link="PlaybackClockHealth.cs" />
     <Compile Include="../LyricCoverage.cs" Link="LyricCoverage.cs" />
     <Compile Include="ParserSmokeTests.cs" />
+    <Compile Include="CoverageTests.cs" />
   </ItemGroup>
 </Project>
