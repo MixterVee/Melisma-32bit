@@ -73,7 +73,7 @@ internal static class LrcRedWordProvider
             raw.ValueKind == JsonValueKind.String
             ? raw.GetString() ?? "" : "";
 
-    private static Task<HttpResponseMessage> GetAsync(
+    private static async Task<HttpResponseMessage> GetAsync(
         HttpClient client, string url, CancellationToken cancellation)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -83,8 +83,8 @@ internal static class LrcRedWordProvider
             "MelismaUniversalWindows/0.6.2 (Windows; https://github.com/MixterVee/Melisma-32bit; contact https://github.com/MixterVee/Melisma-32bit/issues)");
         request.Headers.Accept.ParseAdd(
             "application/ttml+xml, application/xml, application/json, text/plain");
-        return client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead,
-            cancellation);
+        return await client.SendAsync(request,
+            HttpCompletionOption.ResponseHeadersRead, cancellation);
     }
 }
 
