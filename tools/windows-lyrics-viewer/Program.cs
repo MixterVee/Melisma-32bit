@@ -86,10 +86,11 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.8";
+        Text = "Melisma Universal · Windows v0.6.9";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
+        ControllerWindowPlacement.Restore(this);
         BackColor = Color.FromArgb(11, 15, 28);
         ForeColor = Color.White;
         Font = new Font("Segoe UI", 10);
@@ -214,6 +215,7 @@ internal sealed class LyricsController : Form
             }
             catch (Exception ex) { _notice = "Windows media access failed: " + ex.Message; }
         };
+        FormClosing += (_, _) => ControllerWindowPlacement.Save(this);
         FormClosed += (_, _) =>
         {
             _screenTimer.Stop();
@@ -397,9 +399,10 @@ internal sealed class LyricsController : Form
             if (title == _song && artist == _artist && album == _album) return;
             _song = title; _artist = artist; _album = album;
             _loadedFor = title + "|" + artist + "|" + album;
-            // Invalidate any delayed artwork read from the preceding song.
+            // Keep the previous cover displayed until the replacement arrives.
+            // Clearing here produced a blank panel followed by a new fade-IN,
+            // instead of the selected old-cover-to-new-cover crossfade.
             int artworkRequest = ++_artworkRequestId;
-            _artwork.Replace(null);
             _artworkStatus = "Looking for artwork";
             _ = LoadArtworkAsync(props.Thumbnail, title, artist, album,
                 _durationMs, _loadedFor, artworkRequest);
@@ -464,6 +467,7 @@ internal sealed class LyricsController : Form
             if (!StillCurrent()) return;
             if (!_display.AutoArtworkLookup)
             {
+                _artwork.Replace(null); // Fade away only after this track is confirmed artless.
                 _artworkStatus = "No player thumbnail (online fallback off)";
                 return;
             }
@@ -472,6 +476,7 @@ internal sealed class LyricsController : Form
             if (!StillCurrent()) return;
             if (matched == null)
             {
+                _artwork.Replace(null); // No replacement exists: fade the old cover out.
                 _artworkStatus = "No player thumbnail or matched catalog artwork";
                 return;
             }
@@ -485,8 +490,11 @@ internal sealed class LyricsController : Form
                         or System.Runtime.InteropServices.COMException
                         or OutOfMemoryException)
         {
-            if (StillCurrent()) _artworkStatus =
-                "Cover image unavailable: " + ex.GetType().Name;
+            if (StillCurrent())
+            {
+                _artwork.Replace(null);
+                _artworkStatus = "Cover image unavailable: " + ex.GetType().Name;
+            }
             // Artwork is optional. Never interrupt lyrics/playback.
         }
     }
@@ -1000,6 +1008,89 @@ internal static class LrcParser
     }
 }
 
+// Restore the controller only, not the borderless second-screen projection.
+// A monitor may be disconnected or its resolution/DPI may have changed since
+// the last run, so saved coordinates are always clamped to a visible work area.
+internal sealed class SavedControllerPlacement
+{
+    public int X { get; set; }
+    public int Y { get; set; }
+    public int Width { get; set; }
+    public int Height { get; set; }
+    public bool Maximized { get; set; }
+}
+
+internal static class ControllerWindowPlacement
+{
+    private static readonly string PathName = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "MelismaUniversal", "WindowsLyricsViewer", "window-placement.json");
+
+    public static void Restore(Form window)
+    {
+        try
+        {
+            if (!File.Exists(PathName)) return;
+            var saved = JsonSerializer.Deserialize<SavedControllerPlacement>(File.ReadAllText(PathName));
+            if (saved == null || saved.Width < 825 || saved.Height < 590 ||
+                saved.Width > 16000 || saved.Height > 16000) return;
+            var wanted = new Rectangle(saved.X, saved.Y, saved.Width, saved.Height);
+            var screens = Screen.AllScreens.Select(s => s.WorkingArea).ToArray();
+            if (screens.Length == 0) return;
+            Rectangle best = screens[0];
+            long bestArea = 0;
+            foreach (var area in screens)
+            {
+                var overlap = Rectangle.Intersect(wanted, area);
+                long visible = Math.Max(0, overlap.Width) * (long)Math.Max(0, overlap.Height);
+                if (visible <= bestArea) continue;
+                bestArea = visible;
+                best = area;
+            }
+            if (bestArea < 100 * 100)
+                best = Screen.PrimaryScreen?.WorkingArea ?? screens[0];
+            int width = Math.Min(Math.Max(saved.Width, window.MinimumSize.Width), best.Width);
+            int height = Math.Min(Math.Max(saved.Height, window.MinimumSize.Height), best.Height);
+            int x = bestArea < 100 * 100 ? best.Left + (best.Width - width) / 2
+                : Math.Clamp(saved.X, best.Left, best.Right - width);
+            int y = bestArea < 100 * 100 ? best.Top + (best.Height - height) / 2
+                : Math.Clamp(saved.Y, best.Top, best.Bottom - height);
+            window.StartPosition = FormStartPosition.Manual;
+            window.Bounds = new Rectangle(x, y, width, height);
+            if (saved.Maximized) window.WindowState = FormWindowState.Maximized;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+            or JsonException or ArgumentException or OverflowException)
+        {
+            // A corrupt or inaccessible optional profile must not block startup.
+        }
+    }
+
+    public static void Save(Form window)
+    {
+        try
+        {
+            var bounds = window.WindowState == FormWindowState.Normal
+                ? window.Bounds : window.RestoreBounds;
+            if (bounds.Width < 825 || bounds.Height < 590) return;
+            var value = new SavedControllerPlacement
+            {
+                X = bounds.X, Y = bounds.Y,
+                Width = bounds.Width, Height = bounds.Height,
+                Maximized = window.WindowState == FormWindowState.Maximized
+            };
+            Directory.CreateDirectory(Path.GetDirectoryName(PathName)!);
+            string temp = PathName + ".tmp";
+            File.WriteAllText(temp, JsonSerializer.Serialize(value));
+            File.Move(temp, PathName, true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Continue closing normally even on a read-only Windows profile.
+        }
+    }
+}
+
 // Property initializers are important: existing v0.5 album-art.json files
 // have only Enabled and FadeSeconds. CoverFadeSeconds defaults to the
 // previously hard-coded 3.4s when that setting is missing.
@@ -1215,10 +1306,23 @@ internal sealed class LyricsCanvas : Control
             ClearPlan();
             _lastActive = int.MinValue;
             _transitionFrom = -1;
-            DrawMessage(g, "♪", Height * 0.33f, 76, Highlight, true);
-            DrawMessage(g, "Waiting for synchronized lyrics", Height * 0.55f, 22, Color.White, true);
+            DrawBouncingDots(g, Environment.TickCount64);
+            DrawMessage(g, "Waiting for synchronized lyrics", Height * 0.58f, 20, Color.White, true);
             DrawMessage(g, frame.Message, Height * 0.67f, 12, Other, false);
             g.Restore(textClip);
+            DrawIdleTakeover(g);
+            return;
+        }
+
+        // Android Melisma inserts animated three-dot interludes in the intro
+        // and between vocal lines when there are at least 3000ms of silence.
+        // These are computed from lyric timestamps (and hidden 500ms early),
+        // so a seek or pause immediately lands on the correct visual state.
+        if (LyricsInterlude.At(frame.Lines, frame.LyricPositionMs) != null)
+        {
+            DrawBouncingDots(g, frame.LyricPositionMs);
+            g.Restore(textClip);
+            DrawSourceCredit(g, frame);
             DrawIdleTakeover(g);
             return;
         }
@@ -1317,6 +1421,29 @@ internal sealed class LyricsCanvas : Control
         g.Restore(textClip);
         DrawSourceCredit(g, frame);
         DrawIdleTakeover(g);
+    }
+
+    private void DrawBouncingDots(Graphics g, long clockMs)
+    {
+        // Three round dots rise in sequence. The animation is subtle enough
+        // for a TV, yet legible in the controller's smaller preview.
+        var area = LyricsArea;
+        float radius = Math.Clamp(area.Width / 90f, 4.5f, 10.5f);
+        float separation = radius * 3.5f;
+        float left = area.Left + area.Width * 0.5f - separation;
+        float middle = area.Top + area.Height * 0.5f;
+        float phase = (float)((clockMs % 1800 + 1800) % 1800) / 1800f;
+        for (int i = 0; i < 3; i++)
+        {
+            float wave = (1f - MathF.Cos(2f * MathF.PI * (phase - i * 0.18f))) * 0.5f;
+            wave *= wave * (3f - 2f * wave);
+            float size = radius * (0.83f + 0.23f * wave);
+            float y = middle - radius * 1.35f * wave;
+            int alpha = (int)(115f + 140f * wave);
+            using var brush = new SolidBrush(Color.FromArgb(alpha, Highlight));
+            g.FillEllipse(brush, left + separation * i - size, y - size,
+                size * 2f, size * 2f);
+        }
     }
 
     private void DrawSourceCredit(Graphics g, LyricFrame frame)
@@ -1434,18 +1561,19 @@ internal sealed class LyricsCanvas : Control
             return;
         }
 
-        var art = _artwork.Enabled ? _artwork.Current : null;
-        DrawPalette(g, art, style is MelismaBackgroundStyle.Living
-                                or MelismaBackgroundStyle.LivingClassic,
-            layerOpacity);
+        var current = _artwork.Enabled ? _artwork.Current : null;
+        var previous = _artwork.Enabled ? _artwork.Previous : null;
+        float progress = _artwork.Progress;
+        // The palette must transition too: sampling only the incoming cover
+        // switched colours abruptly on the very first frame.
+        DrawPalette(g, previous, current, progress,
+            style is MelismaBackgroundStyle.Living
+                or MelismaBackgroundStyle.LivingClassic, layerOpacity);
 
         if (style is MelismaBackgroundStyle.Colour
             or MelismaBackgroundStyle.LivingClassic) return;
 
         if (!_artwork.Enabled) return;
-        var previous = _artwork.Previous;
-        var current = _artwork.Current;
-        float progress = _artwork.Progress;
 
         int blur = style == MelismaBackgroundStyle.Living
             ? 30 : _display.CoverBlur;
@@ -1477,11 +1605,17 @@ internal sealed class LyricsCanvas : Control
         }
     }
 
-    private void DrawPalette(Graphics g, Image? art, bool moving,
-        float layerOpacity)
+    private void DrawPalette(Graphics g, Image? previous, Image? current,
+        float progress, bool moving, float layerOpacity)
     {
-        var one = Sample(art, 0.24f, 0.28f, Color.FromArgb(42, 73, 107));
-        var two = Sample(art, 0.75f, 0.68f, Color.FromArgb(91, 36, 99));
+        var one = Blend(
+            Sample(previous, 0.24f, 0.28f, Color.FromArgb(42, 73, 107)),
+            Sample(current, 0.24f, 0.28f, Color.FromArgb(42, 73, 107)),
+            previous == null && current == null ? 1f : progress);
+        var two = Blend(
+            Sample(previous, 0.75f, 0.68f, Color.FromArgb(91, 36, 99)),
+            Sample(current, 0.75f, 0.68f, Color.FromArgb(91, 36, 99)),
+            previous == null && current == null ? 1f : progress);
         float motion = moving ? MathF.Sin(Environment.TickCount64 / 4800f) * 0.18f : 0f;
         float angle = 38f + motion * 115f;
         int alpha = Math.Clamp((int)(255f * layerOpacity), 0, 255);
@@ -1563,11 +1697,15 @@ internal sealed class LyricsCanvas : Control
 
         if (_artwork.Enabled)
         {
-            float fade = _artwork.PanelProgress; // Independent, adjustable cover-panel fade.
+            float fade = _artwork.PanelProgress; // User-selected cover transition.
+            // Keep the outgoing cover fully opaque underneath the incoming
+            // one. Fading both against a dark backing made the old cover
+            // appear to disappear before the replacement was visible.
             if (_artwork.Previous != null && fade < 1f)
-                DrawCover(g, _artwork.Previous, 1f - fade, coverBox);
+                DrawCover(g, _artwork.Previous,
+                    CoverFade.OldOpacity(fade, _artwork.Current != null), coverBox);
             if (_artwork.Current != null && fade > 0f)
-                DrawCover(g, _artwork.Current, fade, coverBox);
+                DrawCover(g, _artwork.Current, CoverFade.NewOpacity(fade), coverBox);
         }
         if (!_artwork.Enabled || _artwork.Current == null && _artwork.Previous == null)
         {
