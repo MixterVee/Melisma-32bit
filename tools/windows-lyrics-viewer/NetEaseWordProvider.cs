@@ -28,8 +28,6 @@ internal static class NetEaseWordProvider
         string clean = AndroidLyricsMatch.CleanTitle(title);
         var queries = new[] { title + " " + primary, title,
             clean + " " + primary }.Distinct().ToList();
-        List<LrcLine>? lineTimedFallback = null;
-
         foreach (string query in queries)
         {
             cancellation.ThrowIfCancellationRequested();
@@ -107,18 +105,18 @@ internal static class NetEaseWordProvider
                 // when YRC word timing is missing. The Windows port had been
                 // throwing those real line timestamps away and leaving users
                 // with untimed text instead. Keep the first plausible line-
-                // timed answer while continuing to seek better word timing.
+                // timed answer immediately; other concurrent providers can upgrade it.
                 string lrc = ExtractLyric(doc.RootElement, "lrc");
                 if (!string.IsNullOrWhiteSpace(lrc))
                 {
                     var lineTimed = LrcParser.Parse(lrc);
                     if (lineTimed.Count > 0 &&
                         BetterLyricsWordProvider.PlausibleDuration(lineTimed, durationMs))
-                        lineTimedFallback ??= lineTimed;
+                        return lineTimed;
                 }
             }
         }
-        return lineTimedFallback;
+        return null;
     }
 
     private static string GetText(JsonElement entry, string name) =>
