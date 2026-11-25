@@ -25,6 +25,7 @@ foreach (var song in songs)
         "ttml", false);
     await Inspect("BetterLyrics QQ", $"https://api.betterlyrics.org/qq/getLyrics?{queryArgs}",
         "lyrics", false);
+    await ProbeLrcRed(song.Title, song.Artist);
 
     try
     {
@@ -97,6 +98,50 @@ async Task Inspect(string label, string url, string field, bool isSearch)
     {
         Console.WriteLine($"  {label}: EXCEPTION {ex.GetType().Name}: {ex.Message}");
     }
+}
+
+async Task ProbeLrcRed(string title, string artist)
+{
+    string search = "https://lrc.red/search.json?q=" +
+        Uri.EscapeDataString(title + " " + artist);
+    try
+    {
+        using var response = await client.GetAsync(search);
+        string body = await response.Content.ReadAsStringAsync();
+        Console.Write($"  lrc.red search: HTTP {(int)response.StatusCode}");
+        if (!response.IsSuccessStatusCode)
+        {
+            Console.WriteLine($" {body[..Math.Min(150, body.Length)]}");
+            return;
+        }
+        using var json = JsonDocument.Parse(body);
+        if (!json.RootElement.TryGetProperty("hits", out var hits) ||
+            hits.ValueKind != JsonValueKind.Array)
+        {
+            Console.WriteLine($" schema={string.Join(",", json.RootElement.EnumerateObject().Select(p => p.Name))}");
+            return;
+        }
+        Console.WriteLine($" hits={hits.GetArrayLength()}");
+        foreach (var hit in hits.EnumerateArray().Take(3))
+        {
+            string titleHit = hit.TryGetProperty("title", out var n) ? n.GetString() ?? "" : "";
+            string artistHit = hit.TryGetProperty("artist", out var a) ? a.GetString() ?? "" : "";
+            string isrc = hit.TryGetProperty("isrc", out var ir) ? ir.GetString() ?? "" : "";
+            Console.WriteLine($"    hit: {titleHit} / {artistHit} ({isrc})");
+            if (!string.Equals(title, titleHit, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(artist, artistHit, StringComparison.OrdinalIgnoreCase) ||
+                isrc.Length == 0) continue;
+            using var lyricResponse = await client.GetAsync("https://lrc.red/s/" +
+                Uri.EscapeDataString(isrc) + ".ttml");
+            Console.WriteLine($"    lrc.red TTML: HTTP {(int)lyricResponse.StatusCode}");
+            if (!lyricResponse.IsSuccessStatusCode) continue;
+            string xml = await lyricResponse.Content.ReadAsStringAsync();
+            var parsed = WordTimedLyrics.ParseTtml(xml);
+            Console.WriteLine($"    lrc.red parsed={parsed.Count} lines, timed={parsed.Count(l => l.Words is { Count: > 1 })}");
+            break;
+        }
+    }
+    catch (Exception ex) { Console.WriteLine($"  lrc.red: {ex.GetType().Name}: {ex.Message}"); }
 }
 
 namespace MelismaLyricsViewer
