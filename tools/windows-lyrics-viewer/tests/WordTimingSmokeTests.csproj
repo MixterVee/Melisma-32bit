@@ -16,6 +16,9 @@
     <Compile Include="../NetEaseWordProvider.cs" Link="NetEaseWordProvider.cs" />
     <Compile Include="../LyricWordSpacing.cs" Link="LyricWordSpacing.cs" />
     <Compile Include="../ActiveWordPulse.cs" Link="ActiveWordPulse.cs" />
+    <Compile Include="../LyricsInterlude.cs" Link="LyricsInterlude.cs" />
+    <Compile Include="../CoverFade.cs" Link="CoverFade.cs" />
+    <Compile Include="InterludeAndArtworkTests.cs" />
     <Compile Include="ActiveWordPulseTests.cs" />
     <Compile Include="ProviderProgressTests.cs" />
     <Compile Include="../LyricsResultCache.cs" Link="LyricsResultCache.cs" />

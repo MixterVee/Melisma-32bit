@@ -1,3 +1,21 @@
+# Melisma Universal — Windows v0.6.9 (test build)
+
+## Fix: continuous cover-art changes, Android instrumental dots, remembered window
+
+- **Actual cover-to-cover crossfade:** do not clear the outgoing cover on a new track. Keep it visible while Foobar's embedded image or the optional catalog fallback loads, then transition directly to the incoming artwork. The Cinema cover panel keeps the outgoing art fully visible underneath the incoming art, avoiding a dip through the dark placeholder. An artless track fades out only after lookups confirm no cover; stale asynchronous results cannot replace later songs.
+- **Separate user timings preserved:** Display → Background transition controls the background art and palette; Display → Cover art transition controls the Cinema artwork panel. Both stay adjustable at 1–10 seconds. The palette now also blends old-to-new rather than snapping to incoming colours.
+- **Three bouncing dots from Android:** an instrumental introduction or 3000ms-or-longer gap between lyric lines shows a gently staggered three-dot animation, disappearing 500ms before vocals return. Uses accurate word end times where available and conservative estimates otherwise. The placeholder also animates while lyrics are still loading. No synthetic lyric timestamps are written to files.
+- **Remember controller placement:** last restored window coordinates, size and maximized state are saved to LocalAppData/MelismaUniversal/WindowsLyricsViewer/window-placement.json on close and restored on launch. Disconnected displays are handled by clamping/centering within an available screen. The independent borderless TV display remains full screen on its selected monitor.
+
+### Acceptance test
+
+1. On v0.6.9, switch between two songs with different embedded covers and confirm no black or empty frame while the incoming cover loads. Adjust both transitions to 8 seconds to make the blend easy to verify, then restore your preferences.
+2. Play a track whose first lyric starts after three seconds, then seek into a long instrumental section. Confirm three cyan-ish dots bounce until roughly 500ms before the next lyric.
+3. Move and resize the main window, exit and restart; it should reopen in the same place. Check maximized state separately. The TV output should stay independent.
+4. Check v0.6.8's faster lyric loading and smooth single-render word enlargement are unchanged.
+
+---
+
 # Melisma Universal — Windows v0.6.8 (test build)
 
 ## More fluid active-word growth (no abrupt pop)
