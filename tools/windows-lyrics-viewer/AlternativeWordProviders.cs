@@ -179,6 +179,10 @@ internal static class QrcWordParser
             if (lyric.Length == 0 || Credit.IsMatch(lyric)) continue;
             if (!string.IsNullOrEmpty(title) && Key(lyric) == Key(title)) continue;
             if (!string.IsNullOrEmpty(artist) && Key(lyric) == Key(artist)) continue;
+            // QQ often repeats "Song - Artist" as the first timed line.
+            // It is a title card, not something that should be sung.
+            if (!string.IsNullOrEmpty(title) && !string.IsNullOrEmpty(artist) &&
+                Key(lyric) == Key(title + " " + artist)) continue;
 
             // Drop the singer-only calls that sometimes appear before a line.
             if ((lyric.EndsWith(':') || lyric.EndsWith('：')) &&
