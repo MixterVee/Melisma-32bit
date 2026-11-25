@@ -872,64 +872,116 @@ internal sealed class LyricsController : Form
     {
         private static string Arg(string value) => Uri.EscapeDataString(value);
         private static string? Field(JsonElement item, string name) =>
-            item.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String
-                ? v.GetString() : null;
+            item.TryGetProperty(name, out var field) &&
+            field.ValueKind == JsonValueKind.String ? field.GetString() : null;
 
+        // Android tries exact tags, cleaned title + primary artist, then
+        // a scored search. This avoids silently discarding valid lyrics
+        // because Foobar tags contain a featured artist or different album.
         public static async Task<string?> FindAsync(
-            string title, string artist, string album, long durationMs, CancellationToken token)
+            string title, string artist, string album, long durationMs,
+            CancellationToken token, Action<string>? onPlain = null)
         {
-            var url = "https://lrclib.net/api/get?track_name=" + Arg(title) +
-                "&artist_name=" + Arg(artist);
-            if (!string.IsNullOrWhiteSpace(album)) url += "&album_name=" + Arg(album);
-            if (durationMs > 0) url += "&duration=" +
-                Math.Round(durationMs / 1000.0).ToString(CultureInfo.InvariantCulture);
+            string clean = AndroidLyricsMatch.CleanTitle(title);
+            string primary = AndroidLyricsMatch.SplitArtists(artist).FirstOrDefault() ?? artist;
+            string? plainCandidate = null;
 
-            using (var response = await Client.GetAsync(url, token))
+            var exacts = new List<(string Title, string Artist, string Album, bool Duration)>
             {
+                (title, artist, album, true)
+            };
+            if (clean != title || primary != artist || album.Length > 0 || durationMs > 0)
+                exacts.Add((clean, primary, "", false));
+
+            foreach (var exact in exacts)
+            {
+                if (string.IsNullOrWhiteSpace(exact.Artist)) continue;
+                string url = "https://lrclib.net/api/get?track_name=" +
+                    Arg(exact.Title) + "&artist_name=" + Arg(exact.Artist);
+                if (exact.Album.Length > 0)
+                    url += "&album_name=" + Arg(exact.Album);
+                if (exact.Duration && durationMs > 0)
+                    url += "&duration=" + Math.Round(durationMs / 1000d)
+                        .ToString(CultureInfo.InvariantCulture);
+                using var response = await Client.GetAsync(url, token);
                 if (response.StatusCode == HttpStatusCode.TooManyRequests)
-                    throw new InvalidOperationException("LRCLIB rate limited the request. Try again later.");
-                if (response.IsSuccessStatusCode)
-                {
-                    using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(token));
-                    var direct = Field(json.RootElement, "syncedLyrics");
-                    if (!string.IsNullOrWhiteSpace(direct)) return direct;
-                }
-                else if (response.StatusCode != HttpStatusCode.NotFound)
-                    response.EnsureSuccessStatusCode();
+                    throw new HttpRequestException("LRCLIB rate limited the request");
+                if (response.StatusCode == HttpStatusCode.NotFound) continue;
+                response.EnsureSuccessStatusCode();
+                using var doc = JsonDocument.Parse(
+                    await response.Content.ReadAsStringAsync(token));
+                var item = doc.RootElement;
+                if (item.TryGetProperty("instrumental", out var instrumental) &&
+                    instrumental.ValueKind == JsonValueKind.True) continue;
+                var synced = Field(item, "syncedLyrics");
+                if (!string.IsNullOrWhiteSpace(synced)) return synced;
+                var plain = Field(item, "plainLyrics");
+                if (plain is { Length: > 4 and <= 30000 }) plainCandidate ??= plain;
             }
-            await Task.Delay(350, token);
-            // Best-effort search can find a nearby candidate with synchronized
-            // lines when album or metadata differ. Favor close durations.
-            url = "https://lrclib.net/api/search?track_name=" + Arg(title) +
-                "&artist_name=" + Arg(artist);
-            using var search = await Client.GetAsync(url, token);
-            if (search.StatusCode == HttpStatusCode.TooManyRequests)
-                throw new InvalidOperationException("LRCLIB rate limited the request. Try again later.");
-            search.EnsureSuccessStatusCode();
-            using var results = JsonDocument.Parse(await search.Content.ReadAsStringAsync(token));
-            if (results.RootElement.ValueKind != JsonValueKind.Array) return null;
 
-            string? best = null;
-            double bestScore = double.MaxValue;
-            foreach (var row in results.RootElement.EnumerateArray())
+            string searchUrl = "https://lrclib.net/api/search?track_name=" + Arg(clean);
+            if (!string.IsNullOrWhiteSpace(primary))
+                searchUrl += "&artist_name=" + Arg(primary);
+            using var search = await Client.GetAsync(searchUrl, token);
+            if (search.StatusCode == HttpStatusCode.TooManyRequests)
+                throw new HttpRequestException("LRCLIB rate limited search");
+            search.EnsureSuccessStatusCode();
+            using var results = JsonDocument.Parse(
+                await search.Content.ReadAsStringAsync(token));
+            string? bestTimed = null, bestPlain = null;
+            float bestTimedScore = -1f, bestPlainScore = -1f;
+            if (results.RootElement.ValueKind == JsonValueKind.Array)
             {
-                string? synced = Field(row, "syncedLyrics");
-                if (string.IsNullOrWhiteSpace(synced)) continue;
-                string titleMatch = Field(row, "trackName") ?? "";
-                string artistMatch = Field(row, "artistName") ?? "";
-                if (!titleMatch.Equals(title, StringComparison.OrdinalIgnoreCase) ||
-                    !artistMatch.Equals(artist, StringComparison.OrdinalIgnoreCase)) continue;
-                double reported = row.TryGetProperty("duration", out var d) &&
-                    d.ValueKind == JsonValueKind.Number ? d.GetDouble() : 0;
-                double delta = durationMs <= 0 ? 0 : Math.Abs(reported * 1000.0 - durationMs);
-                if (durationMs > 0 && delta > 3000) continue;
-                if (delta < bestScore)
+                foreach (var row in results.RootElement.EnumerateArray())
                 {
-                    best = synced;
-                    bestScore = delta;
+                    if (row.ValueKind != JsonValueKind.Object) continue;
+                    if (row.TryGetProperty("instrumental", out var instrumental) &&
+                        instrumental.ValueKind == JsonValueKind.True) continue;
+                    string candidateTitle = Field(row, "trackName") ?? "";
+                    string candidateArtist = Field(row, "artistName") ?? "";
+                    long candidateDuration = row.TryGetProperty("duration", out var d) &&
+                        d.ValueKind == JsonValueKind.Number
+                            ? (long)(d.GetDouble() * 1000d) : 0L;
+                    if (!Accepts(title, artist, durationMs, candidateTitle,
+                        candidateArtist, candidateDuration)) continue;
+                    float score = AndroidLyricsMatch.Score(title, artist, durationMs,
+                        candidateTitle, candidateArtist, candidateDuration);
+
+                    var synced = Field(row, "syncedLyrics");
+                    if (!string.IsNullOrWhiteSpace(synced) && score > bestTimedScore)
+                    {
+                        bestTimed = synced;
+                        bestTimedScore = score;
+                    }
+                    var plain = Field(row, "plainLyrics");
+                    if (plain is { Length: > 4 and <= 30000 } && score > bestPlainScore)
+                    {
+                        bestPlain = plain;
+                        bestPlainScore = score;
+                    }
                 }
             }
-            return best;
+            if (bestTimed != null) return bestTimed;
+            onPlain?.Invoke(bestPlain ?? plainCandidate ?? "");
+            return null;
+        }
+
+        internal static bool Accepts(string title, string artist, long durationMs,
+            string candidateTitle, string candidateArtist, long candidateDurationMs)
+        {
+            if (title.Length == 0 || candidateTitle.Length == 0) return false;
+            if (durationMs > 0 && candidateDurationMs > 0 &&
+                Math.Abs(durationMs - candidateDurationMs) > 10000) return false;
+            // Title only is ambiguous. With no artist, insist on a matching
+            // recording length and canonical title before showing lyrics.
+            if (string.IsNullOrWhiteSpace(artist))
+                return durationMs > 0 && candidateDurationMs > 0 &&
+                    Math.Abs(durationMs - candidateDurationMs) <= 5000 &&
+                    string.Equals(AndroidLyricsMatch.CleanTitle(title),
+                        AndroidLyricsMatch.CleanTitle(candidateTitle),
+                        StringComparison.OrdinalIgnoreCase);
+            return AndroidLyricsMatch.Score(title, artist, durationMs,
+                candidateTitle, candidateArtist, candidateDurationMs) >= 0.62f;
         }
     }
 }
