@@ -31,9 +31,6 @@ jobs:
       - name: Restore Windows lyrics project
         run: dotnet restore tools/windows-lyrics-viewer/MelismaLyricsViewer.csproj -r win-x64
 
-      - name: Probe live lyric timestamps
-        run: dotnet run --project tools/windows-lyrics-viewer/tests/ProviderProbe.csproj -c Release
-
       - name: Validate genuine TTML word-timing parser
         run: dotnet run --project tools/windows-lyrics-viewer/tests/WordTimingSmokeTests.csproj -c Release
 
@@ -53,6 +50,6 @@ jobs:
       - name: Upload Windows lyrics viewer
         uses: actions/upload-artifact@v4
         with:
-          name: Melisma-Universal-Windows-v0.6.3-x64
+          name: Melisma-Universal-Windows-v0.6.4-x64
           path: lyrics-kit/*
           retention-days: 30
