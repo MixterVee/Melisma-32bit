@@ -31,6 +31,9 @@ jobs:
       - name: Restore Windows lyrics project
         run: dotnet restore tools/windows-lyrics-viewer/MelismaLyricsViewer.csproj -r win-x64
 
+      - name: Probe real public lyric provider responses
+        run: dotnet run --project tools/windows-lyrics-viewer/tests/ProviderProbe.csproj -c Release
+
       - name: Validate genuine TTML word-timing parser
         run: dotnet run --project tools/windows-lyrics-viewer/tests/WordTimingSmokeTests.csproj -c Release
 
