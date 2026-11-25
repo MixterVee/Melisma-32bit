@@ -84,7 +84,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.3";
+        Text = "Melisma Universal · Windows v0.6.4";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -648,14 +648,23 @@ internal sealed class LyricsController : Form
             var best = lookup.Best;
             _lines.Clear();
             _lines.AddRange(best.Lines);
-            _source = best.Id == "lrcred" ? "lrc.red" : best.Name;
-            string timing = best.WordTimed ? "Word-synced" : "Line-synced";
+            bool introAdded = best.Name.Contains("+ LRCLIB intro",
+                StringComparison.Ordinal);
+            _source = best.Id == "lrcred" ? (introAdded
+                ? "lrc.red + LRCLIB intro" : "lrc.red") : best.Name;
+            string timing = introAdded
+                ? "Word-synced + line-timed intro"
+                : best.WordTimed ? "Word-synced" : "Line-synced";
             _statusLabel.Text = $"{timing} · {best.Name}";
-            _notice = best.WordTimed
-                ? $"{best.Total} lines, {best.Timed} with real word timing · " +
-                  "Pause/seek Foobar2000 to verify."
-                : $"{best.Total} line-timed lyrics; see Source details… " +
-                  "for the other providers.";
+            _notice = introAdded
+                ? $"{best.Total} lines: early vocals from LRCLIB (line timed), " +
+                  $"{best.Timed} word-timed lines from {best.Id}. " +
+                  "All timestamps are source-provided."
+                : best.WordTimed
+                    ? $"{best.Total} lines, {best.Timed} with real word timing · " +
+                      "Pause/seek Foobar2000 to verify."
+                    : $"{best.Total} line-timed lyrics; see Source details… " +
+                      "for the other providers.";
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
@@ -675,7 +684,7 @@ internal sealed class LyricsController : Form
     {
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd(
-            "MelismaWindows/0.6.2 (Windows; https://github.com/MixterVee/Melisma-32bit)");
+            "MelismaWindows/0.6.4 (Windows; https://github.com/MixterVee/Melisma-32bit)");
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         return client;
     }
@@ -1167,7 +1176,7 @@ internal sealed class LyricsCanvas : Control
     private void DrawSourceCredit(Graphics g, LyricFrame frame)
     {
         // lrc.red requires visible attribution and a link to its source.
-        if (!frame.Source.Equals("lrc.red", StringComparison.OrdinalIgnoreCase)) return;
+        if (!frame.Source.StartsWith("lrc.red", StringComparison.OrdinalIgnoreCase)) return;
         using var font = new Font("Segoe UI", 9.5f);
         using var brush = new SolidBrush(Color.FromArgb(210, 216, 225, 236));
         using var align = new StringFormat { Alignment = StringAlignment.Center };

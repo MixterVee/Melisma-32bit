@@ -12,6 +12,8 @@
     <Compile Include="../LrcRedWordProvider.cs" Link="LrcRedWordProvider.cs" />
     <Compile Include="../LyricsSourceOrchestrator.cs" Link="LyricsSourceOrchestrator.cs" />
     <Compile Include="../PlaybackClockHealth.cs" Link="PlaybackClockHealth.cs" />
+    <Compile Include="../LyricCoverage.cs" Link="LyricCoverage.cs" />
     <Compile Include="ParserSmokeTests.cs" />
+    <Compile Include="CoverageTests.cs" />
   </ItemGroup>
 </Project>
