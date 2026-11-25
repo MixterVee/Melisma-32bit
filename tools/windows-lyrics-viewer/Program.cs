@@ -34,6 +34,7 @@ internal sealed class LyricsController : Form
     private readonly SongOffsetStore _offsets = new();
     private readonly AlbumArtworkState _artwork = new();
     private readonly MelismaDisplaySettings _display = MelismaDisplaySettings.Load();
+    private readonly PlaybackIdleBackground _idleBackground = new();
     private MelismaDisplaySettingsForm? _settingsWindow;
     private readonly System.Windows.Forms.Timer _screenTimer = new() { Interval = 55 };
     private readonly System.Windows.Forms.Timer _mediaTimer = new() { Interval = 1200 };
@@ -65,7 +66,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.5.1";
+        Text = "Melisma Universal · Windows v0.5.2";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -148,7 +149,7 @@ internal sealed class LyricsController : Form
         toolbarArea.Controls.Add(extraControls, 0, 1);
         grid.Controls.Add(toolbarArea, 0, 2);
 
-        _preview = new LyricsCanvas(CurrentFrame, _artwork, _display, controllerPreview: true) { Dock = DockStyle.Fill };
+        _preview = new LyricsCanvas(CurrentFrame, _artwork, _display, _idleBackground, controllerPreview: true) { Dock = DockStyle.Fill };
         grid.Controls.Add(_preview, 0, 3);
 
         // Keep the footer quiet: it only changes when the selected song or
@@ -160,6 +161,7 @@ internal sealed class LyricsController : Form
         _screenTimer.Tick += (_, _) =>
         {
             ReadBridge();
+            _idleBackground.Update(_bridgeFound && _playerState == 1, _display);
             _preview.Invalidate();
             _projection?.Redraw();
             // Avoid invalidating labels with identical text every frame.
@@ -393,7 +395,7 @@ internal sealed class LyricsController : Form
                 "Melisma — second display", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
-        _projection = new KaraokeDisplay(screen, CurrentFrame, _artwork, _display);
+        _projection = new KaraokeDisplay(screen, CurrentFrame, _artwork, _display, _idleBackground);
         _projection.FormClosed += (_, _) =>
         {
             _projection = null;
@@ -763,11 +765,48 @@ internal sealed class AlbumArtworkState : IDisposable
     }
 }
 
+/// <summary>
+/// Shared idle-state controller for the laptop preview and full-screen TV.
+/// Brief track gaps do nothing. Long pauses/stops smoothly fade to Living,
+/// and the saved background is restored when playback resumes.
+/// </summary>
+internal sealed class PlaybackIdleBackground
+{
+    private long _notPlayingSince = -1;
+    private long _lastTick = -1;
+    public float LivingMix { get; private set; }
+
+    public void Update(bool isPlaying, MelismaDisplaySettings settings)
+    {
+        long now = Environment.TickCount64;
+        if (_lastTick < 0) _lastTick = now;
+        long deltaMs = Math.Clamp(now - _lastTick, 0, 250);
+        _lastTick = now;
+
+        if (isPlaying)
+            _notPlayingSince = -1;
+        else if (_notPlayingSince < 0)
+            _notPlayingSince = now;
+
+        bool idleLongEnough = !isPlaying && _notPlayingSince >= 0 &&
+            now - _notPlayingSince >=
+            Math.Clamp(settings.IdleLivingDelaySeconds, 10, 15) * 1000L;
+        float target = settings.IdleLivingEnabled && idleLongEnough ? 1f : 0f;
+        // The selected background remains untouched. Only the temporary
+        // Living layer fades in/out; 900ms keeps the mode switch subtle.
+        float step = deltaMs / 900f;
+        LivingMix = Math.Clamp(LivingMix +
+            (target > LivingMix ? step : target < LivingMix ? -step : 0f),
+            0f, 1f);
+    }
+}
+
 internal sealed class LyricsCanvas : Control
 {
     private readonly Func<LyricFrame> _frame;
     private readonly AlbumArtworkState _artwork;
     private readonly MelismaDisplaySettings _display;
+    private readonly PlaybackIdleBackground _idleBackground;
     private readonly bool _controllerPreview;
     private readonly List<(Image Source, int Blur, Bitmap Reduced)> _blurCache = new();
     private static readonly Color Highlight = Color.FromArgb(113, 236, 227);
@@ -797,11 +836,13 @@ internal sealed class LyricsCanvas : Control
     }
 
     public LyricsCanvas(Func<LyricFrame> frame, AlbumArtworkState artwork,
-        MelismaDisplaySettings display, bool controllerPreview = false)
+        MelismaDisplaySettings display, PlaybackIdleBackground idleBackground,
+        bool controllerPreview = false)
     {
         _frame = frame;
         _artwork = artwork;
         _display = display;
+        _idleBackground = idleBackground;
         _controllerPreview = controllerPreview;
         // Paint background, art and lyrics together in a single buffered
         // frame. Separate background erases can cause a brief visible flash,
@@ -962,18 +1003,41 @@ internal sealed class LyricsCanvas : Control
 
     private void DrawArtworkBackground(Graphics g)
     {
-        var style = _display.Background == MelismaBackgroundStyle.Auto
+        var selected = _display.Background == MelismaBackgroundStyle.Auto
             ? MelismaBackgroundStyle.Living : _display.Background;
+        DrawBackgroundStyle(g, selected, 1f);
+
+        // Draw Living as a semi-transparent layer over the currently selected
+        // background. The 900ms blend smoothly fades it in after a sustained
+        // silence and fades it back out when playback resumes. We never alter
+        // the saved background selection, Cinema artwork, or lyric timing.
+        float idleBlend = _idleBackground.LivingMix;
+        if (selected != MelismaBackgroundStyle.Living && idleBlend > 0.001f)
+            DrawBackgroundStyle(g, MelismaBackgroundStyle.Living, idleBlend);
+    }
+
+    private void DrawBackgroundStyle(Graphics g, MelismaBackgroundStyle style,
+        float layerOpacity)
+    {
+        layerOpacity = Math.Clamp(layerOpacity, 0f, 1f);
+        if (layerOpacity <= 0f) return;
 
         if (style == MelismaBackgroundStyle.Black)
         {
-            g.Clear(Color.Black);
+            if (layerOpacity >= 1f) g.Clear(Color.Black);
+            else
+            {
+                using var black = new SolidBrush(Color.FromArgb(
+                    (int)(255f * layerOpacity), Color.Black));
+                g.FillRectangle(black, ClientRectangle);
+            }
             return;
         }
 
         var art = _artwork.Enabled ? _artwork.Current : null;
         DrawPalette(g, art, style is MelismaBackgroundStyle.Living
-                                or MelismaBackgroundStyle.LivingClassic);
+                                or MelismaBackgroundStyle.LivingClassic,
+            layerOpacity);
 
         if (style is MelismaBackgroundStyle.Colour
             or MelismaBackgroundStyle.LivingClassic) return;
@@ -985,7 +1049,8 @@ internal sealed class LyricsCanvas : Control
 
         int blur = style == MelismaBackgroundStyle.Living
             ? 30 : _display.CoverBlur;
-        float opacity = style == MelismaBackgroundStyle.Living ? 0.56f : 0.76f;
+        float opacity = (style == MelismaBackgroundStyle.Living ? 0.56f : 0.76f)
+            * layerOpacity;
 
         Rectangle target = ClientRectangle;
         if (style == MelismaBackgroundStyle.Living)
@@ -1006,21 +1071,26 @@ internal sealed class LyricsCanvas : Control
 
         if (previous != null || current != null)
         {
-            using var scrim = new SolidBrush(Color.FromArgb(157, 8, 12, 25));
+            using var scrim = new SolidBrush(Color.FromArgb(
+                (int)(157f * layerOpacity), 8, 12, 25));
             g.FillRectangle(scrim, ClientRectangle);
         }
     }
 
-    private void DrawPalette(Graphics g, Image? art, bool moving)
+    private void DrawPalette(Graphics g, Image? art, bool moving,
+        float layerOpacity)
     {
         var one = Sample(art, 0.24f, 0.28f, Color.FromArgb(42, 73, 107));
         var two = Sample(art, 0.75f, 0.68f, Color.FromArgb(91, 36, 99));
         float motion = moving ? MathF.Sin(Environment.TickCount64 / 4800f) * 0.18f : 0f;
         float angle = 38f + motion * 115f;
+        int alpha = Math.Clamp((int)(255f * layerOpacity), 0, 255);
         using var fill = new LinearGradientBrush(ClientRectangle,
-            Darken(one, 0.40f), Darken(two, 0.43f), angle);
+            Color.FromArgb(alpha, Darken(one, 0.40f)),
+            Color.FromArgb(alpha, Darken(two, 0.43f)), angle);
         g.FillRectangle(fill, ClientRectangle);
-        using var veil = new SolidBrush(Color.FromArgb(75, 5, 11, 27));
+        using var veil = new SolidBrush(Color.FromArgb(
+            (int)(75f * layerOpacity), 5, 11, 27));
         g.FillRectangle(veil, ClientRectangle);
     }
 
@@ -1389,7 +1459,7 @@ internal sealed class KaraokeDisplay : Form
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 55 };
 
     public KaraokeDisplay(Screen screen, Func<LyricFrame> frame, AlbumArtworkState artwork,
-        MelismaDisplaySettings display)
+        MelismaDisplaySettings display, PlaybackIdleBackground idleBackground)
     {
         Text = "Melisma Karaoke · TV display";
         FormBorderStyle = FormBorderStyle.None;
@@ -1397,7 +1467,7 @@ internal sealed class KaraokeDisplay : Form
         Bounds = screen.Bounds;
         BackColor = Color.Black;
         KeyPreview = true;
-        _canvas = new LyricsCanvas(frame, artwork, display) { Dock = DockStyle.Fill };
+        _canvas = new LyricsCanvas(frame, artwork, display, idleBackground) { Dock = DockStyle.Fill };
         Controls.Add(_canvas);
         KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) Close(); };
         _timer.Tick += (_, _) => _canvas.Invalidate();
