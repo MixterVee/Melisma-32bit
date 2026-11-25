@@ -128,18 +128,34 @@ internal static class QrcWordParser
         string body;
         if (xml.TrimStart().StartsWith('<'))
         {
-            using var source = new StringReader(xml);
-            using var reader = XmlReader.Create(source, new XmlReaderSettings
+            try
             {
-                DtdProcessing = DtdProcessing.Prohibit,
-                XmlResolver = null,
-                MaxCharactersInDocument = 2_000_000
-            });
-            var tree = XDocument.Load(reader);
-            body = tree.Descendants().FirstOrDefault(
-                e => e.Name.LocalName.StartsWith("Lyric_", StringComparison.Ordinal))
-                ?.Attributes().FirstOrDefault(a => a.Name.LocalName == "LyricContent")
-                ?.Value ?? "";
+                using var source = new StringReader(xml);
+                using var reader = XmlReader.Create(source, new XmlReaderSettings
+                {
+                    DtdProcessing = DtdProcessing.Prohibit,
+                    XmlResolver = null,
+                    MaxCharactersInDocument = 2_000_000
+                });
+                var tree = XDocument.Load(reader);
+                body = tree.Descendants().FirstOrDefault(
+                    e => e.Name.LocalName.StartsWith("Lyric_", StringComparison.Ordinal))
+                    ?.Attributes().FirstOrDefault(a => a.Name.LocalName == "LyricContent")
+                    ?.Value ?? "";
+            }
+            catch (XmlException)
+            {
+                // Some QQ responses contain XML with unescaped timed QRC
+                // tokens, making the envelope formally invalid. Android's
+                // provider can still read the enclosed plain timed lyrics.
+                // Extract only an attribute string; no DTD/entity processing.
+                var attribute = Regex.Match(xml,
+                    "LyricContent\\s*=\\s*[\"'](?<raw>[\\s\\S]*?)[\"']\\s*/?>",
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+                body = attribute.Success
+                    ? System.Net.WebUtility.HtmlDecode(attribute.Groups["raw"].Value)
+                    : "";
+            }
         }
         else body = xml;
 
