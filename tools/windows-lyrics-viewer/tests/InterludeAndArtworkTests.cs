@@ -14,6 +14,22 @@ internal static class InterludeAndArtworkTests
         check(LyricsInterlude.At(intro, 5400) != null &&
             LyricsInterlude.At(intro, 5500) == null,
             "Dots disappear exactly 500ms before the next sung line");
+        check(LyricsInterlude.Around(intro, 5500) ==
+                  new InterludeSpan(0, 6000) &&
+              LyricsInterlude.Around(intro, 5999) != null &&
+              LyricsInterlude.Around(intro, 6000) == null,
+            "Preview stays on the next lyric after dots vanish, until singing begins");
+        check(LyricPreviewMotion.UpcomingIndex(-1, 57) == 0 &&
+              LyricPreviewMotion.UpcomingIndex(9, 57) == 10,
+            "Intro and instrumental gap always select the forthcoming lyric");
+        check(LyricPreviewMotion.Reveal(0) == 0f &&
+              LyricPreviewMotion.Reveal(350) > 0f &&
+              LyricPreviewMotion.Reveal(750) == 1f,
+            "Found lyrics begin fading in immediately, finish within 750ms");
+        check(LyricPreviewMotion.Ahead(new InterludeSpan(5000, 16000), 5000) == 0f &&
+              LyricPreviewMotion.Ahead(new InterludeSpan(5000, 16000), 5900) == 1f &&
+              LyricPreviewMotion.Ahead(new InterludeSpan(5000, 16000), 15500) == 1f,
+            "Next line smoothly moves into focus, then stays steady through gap end");
         check(LyricsInterlude.At(intro, 6200) == null,
             "No instrumental dots are painted during a sung word");
         check(LyricsInterlude.At(intro, 6600) == new InterludeSpan(6600, 16000),
