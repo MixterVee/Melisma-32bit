@@ -1340,6 +1340,8 @@ internal sealed class LyricsCanvas : Control
     private float[] _lineCenters = [];
     private float _plannedWidth = -1f, _plannedPoints = -1f, _plannedDpi = -1f;
     private string _plannedSong = "", _plannedArtist = "", _plannedFontFamily = "";
+    private string _lastPlainLyrics = "";
+    private int _plainScrollLines;
 
     // A visual row remembers its original character offset so enhanced-LRC
     // word highlighting still follows the right words after a line wraps.
@@ -1370,6 +1372,11 @@ internal sealed class LyricsCanvas : Control
         DoubleBuffered = true;
         BackColor = Color.FromArgb(17, 23, 39);
         Dock = DockStyle.Fill;
+        MouseWheel += (_, e) =>
+        {
+            _plainScrollLines = Math.Max(0, _plainScrollLines - Math.Sign(e.Delta) * 3);
+            Invalidate();
+        };
     }
 
     protected override void OnPaintBackground(PaintEventArgs e)
@@ -1398,9 +1405,16 @@ internal sealed class LyricsCanvas : Control
             ClearPlan();
             _lastActive = int.MinValue;
             _transitionFrom = -1;
-            DrawBouncingDots(g, Environment.TickCount64);
-            DrawMessage(g, "Waiting for synchronized lyrics", Height * 0.58f, 20, Color.White, true);
-            DrawMessage(g, frame.Message, Height * 0.67f, 12, Other, false);
+            if (!string.IsNullOrWhiteSpace(frame.PlainLyrics))
+                DrawPlainLyrics(g, frame.PlainLyrics);
+            else
+            {
+                DrawBouncingDots(g, Environment.TickCount64);
+                string display = frame.Message.Contains("No matching", StringComparison.OrdinalIgnoreCase)
+                    ? "No synchronized lyrics found" : "Looking for lyrics…";
+                DrawMessage(g, display, Height * 0.58f, 20, Color.White, true);
+                DrawMessage(g, frame.Message, Height * 0.67f, 12, Other, false);
+            }
             g.Restore(textClip);
             DrawIdleTakeover(g);
             return;
@@ -1513,6 +1527,42 @@ internal sealed class LyricsCanvas : Control
         g.Restore(textClip);
         DrawSourceCredit(g, frame);
         DrawIdleTakeover(g);
+    }
+
+    private void DrawPlainLyrics(Graphics g, string plain)
+    {
+        // A real Android fallback: static text is displayed without
+        // inventing any lyric timing. Mouse wheel scrolls through lines.
+        if (_lastPlainLyrics != plain)
+        {
+            _lastPlainLyrics = plain;
+            _plainScrollLines = 0;
+        }
+        var area = LyricsArea;
+        var rect = RectangleF.Inflate(area, -Math.Min(38f, area.Width * 0.07f), -12f);
+        float points = Math.Clamp(rect.Width / 37f, 14f, 24f) * _display.FontScale;
+        using var heading = new Font("Segoe UI", Math.Clamp(points * 0.65f, 10f, 15f),
+            FontStyle.Bold);
+        using var font = new Font(_display.FontFamily, points, FontStyle.Regular);
+        using var textBrush = new SolidBrush(Color.FromArgb(233, 226, 240, 245));
+        using var headingBrush = new SolidBrush(Highlight);
+        g.DrawString("PLAIN LYRICS · NOT SYNCHRONIZED · SCROLL WITH MOUSE WHEEL",
+            heading, headingBrush, new RectangleF(rect.Left, rect.Top, rect.Width, 35f));
+        string[] rows = plain.Replace("\r", "").Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        float top = rect.Top + 37f;
+        float lineHeight = Math.Max(23f, font.GetHeight(g) * 1.27f);
+        int showing = Math.Max(1, (int)((rect.Bottom - top) / lineHeight));
+        _plainScrollLines = Math.Clamp(_plainScrollLines, 0, Math.Max(0, rows.Length - showing));
+        using var format = new StringFormat
+        {
+            Trimming = StringTrimming.EllipsisCharacter,
+            FormatFlags = StringFormatFlags.NoWrap
+        };
+        for (int i = _plainScrollLines;
+            i < Math.Min(rows.Length, _plainScrollLines + showing); i++)
+            g.DrawString(rows[i].Trim(), font, textBrush,
+                new RectangleF(rect.Left, top + (i - _plainScrollLines) * lineHeight,
+                    rect.Width, lineHeight), format);
     }
 
     private void DrawBouncingDots(Graphics g, long clockMs)
