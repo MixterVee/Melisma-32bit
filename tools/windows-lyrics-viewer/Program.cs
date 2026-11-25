@@ -22,7 +22,9 @@ internal static class Program
     }
 }
 
-internal sealed record LrcWord(long AtMs, string Text);
+// EndMs is optional because enhanced LRC often supplies word onset only.
+// TTML supplies both start/end, enabling true continuous word fill.
+internal sealed record LrcWord(long AtMs, string Text, long EndMs = -1);
 internal sealed record LrcLine(long AtMs, string Text, IReadOnlyList<LrcWord>? Words = null);
 internal sealed record LyricFrame(
     IReadOnlyList<LrcLine> Lines, int ActiveIndex,
@@ -66,7 +68,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.5.4";
+        Text = "Melisma Universal · Windows v0.6";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -94,7 +96,7 @@ internal sealed class LyricsController : Form
         headings.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         _trackLabel.Text = "Melisma / Windows Karaoke Preview";
         _trackLabel.Dock = DockStyle.Fill;
-        _statusLabel.Text = "Read-only Foobar2000 bridge · Line-synchronized lyrics";
+        _statusLabel.Text = "Read-only Foobar2000 bridge · Searching lyric providers";
         _statusLabel.Dock = DockStyle.Fill;
         headings.Controls.Add(_trackLabel, 0, 0);
         headings.Controls.Add(_statusLabel, 0, 1);
@@ -117,7 +119,7 @@ internal sealed class LyricsController : Form
         online.Click += (_, _) => _ = LoadLyricsAsync(true);
         toolbar.Controls.Add(online);
 
-        var open = Button("Open .lrc", 105);
+        var open = Button("Open lyrics file", 132);
         open.Click += OpenLrc;
         toolbar.Controls.Add(open);
 
@@ -409,24 +411,33 @@ internal sealed class LyricsController : Form
     {
         using var dialog = new OpenFileDialog
         {
-            Filter = "Synchronized lyrics (*.lrc)|*.lrc|Text files (*.txt)|*.txt|All files (*.*)|*.*",
-            Title = "Open synchronized .lrc lyrics for the current song"
+            Filter = "Timed lyric files (*.ttml;*.xml;*.lrc)|*.ttml;*.xml;*.lrc|TTML files (*.ttml;*.xml)|*.ttml;*.xml|Enhanced LRC (*.lrc)|*.lrc|All files (*.*)|*.*",
+            Title = "Open genuine word-timed TTML or synchronized LRC lyrics"
         };
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
         try
         {
-            var lines = LrcParser.Parse(File.ReadAllText(dialog.FileName));
+            string extension = Path.GetExtension(dialog.FileName).ToLowerInvariant();
+            string text = File.ReadAllText(dialog.FileName);
+            bool ttml = extension is ".ttml" or ".xml";
+            var lines = ttml ? WordTimedLyrics.ParseTtml(text) : LrcParser.Parse(text);
             if (lines.Count == 0)
             {
-                MessageBox.Show(this, "No valid [mm:ss.xx] timed lyric lines were found in this file.",
+                MessageBox.Show(this,
+                    "No usable timed lyrics were found. Use genuine TTML or [mm:ss.xx] LRC timestamps.",
                     "Melisma", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
             _searchCancellation?.Cancel();
             _lines.Clear();
             _lines.AddRange(lines);
-            _source = "Local LRC · " + Path.GetFileName(dialog.FileName);
-            _notice = $"{lines.Count} synchronized lines loaded. Position follows Foobar2000.";
+            bool wordTimed = WordTimedLyrics.HasWordTimings(lines);
+            _source = "Local " + (ttml ? "TTML" : "LRC") + " · " + Path.GetFileName(dialog.FileName);
+            _statusLabel.Text = wordTimed ? "Word-timed lyrics · Local file" :
+                "Line-timed lyrics · Local file";
+            _notice = wordTimed
+                ? $"{lines.Count} lines with genuine word timestamps loaded."
+                : $"{lines.Count} timestamped lines loaded. No word timing found.";
         }
         catch (Exception ex) { _notice = "Cannot open LRC: " + ex.Message; }
     }
@@ -448,11 +459,44 @@ internal sealed class LyricsController : Form
         var artist = _artist;
         var album = _album;
         var duration = _durationMs;
-        _source = "LRCLIB lookup";
-        _notice = requested ? "Searching LRCLIB again…" : "Searching LRCLIB for timestamped lyrics…";
+        _source = "Searching lyrics";
+        _statusLabel.Text = "Searching genuine word timings · AMLL TTML";
+        _notice = requested ? "Looking for improved word-synced lyrics…" :
+            "Checking AMLL TTML for word-by-word lyrics…";
         try
         {
-            // The API recommends sequential requests and short delays to respect limits.
+            // One account-free lookup; strict title/artist match. If the
+            // volunteer service is unavailable or has no genuine word timing,
+            // fall back to the existing reliable line-synced LRCLIB path.
+            try
+            {
+                var wordLines = await AmllWordProvider.FindAsync(
+                    Client, title, artist, token);
+                if (token.IsCancellationRequested || searchFor != _loadedFor ||
+                    IsDisposed) return;
+                if (wordLines is { Count: > 0 })
+                {
+                    _lines.Clear();
+                    _lines.AddRange(wordLines);
+                    _source = "AMLL TTML DB · word timed";
+                    _statusLabel.Text = "Word-synced · AMLL TTML DB";
+                    _notice = $"{wordLines.Count} lines · real syllable/word timing. " +
+                        "Pause and seek in Foobar2000 to test.";
+                    return;
+                }
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) when (ex is HttpRequestException
+                        or TaskCanceledException or JsonException
+                        or System.Xml.XmlException or InvalidOperationException)
+            {
+                // Best effort: a single provider outage cannot stop lyrics.
+            }
+
+            _statusLabel.Text = "Line-synced fallback · LRCLIB";
+            _notice = "No matching word-timed lyrics. Checking LRCLIB…";
+            // The API recommends sequential requests and short delays to
+            // respect rate limits.
             await Task.Delay(350, token);
             string? synced = await Lrclib.FindAsync(title, artist, album, duration, token);
             if (token.IsCancellationRequested || searchFor != _loadedFor || IsDisposed) return;
@@ -460,14 +504,20 @@ internal sealed class LyricsController : Form
             if (lines.Count == 0)
             {
                 _source = "No synchronized lyrics found";
-                _notice = "No timed lyrics found. Try Open .lrc or choose another song.";
+                _statusLabel.Text = "No lyric match · Local TTML/LRC supported";
+                _notice = "No timed lyrics found. Try Open lyrics file or another song.";
             }
             else
             {
                 _lines.Clear();
                 _lines.AddRange(lines);
+                bool wordTimed = WordTimedLyrics.HasWordTimings(lines);
                 _source = "LRCLIB · synchronized LRC";
-                _notice = $"{lines.Count} synchronized lyric lines matched. Pause or seek in Foobar2000 to test.";
+                _statusLabel.Text = wordTimed ? "Word-synced · LRCLIB enhanced LRC" :
+                    "Line-synced · LRCLIB (no word timestamps)";
+                _notice = wordTimed ?
+                    $"{lines.Count} lines with genuine word timestamps." :
+                    $"{lines.Count} line-timed lyrics. Word highlight needs genuine word-timed source.";
             }
         }
         catch (OperationCanceledException) { }
@@ -476,7 +526,8 @@ internal sealed class LyricsController : Form
             if (!IsDisposed && !token.IsCancellationRequested)
             {
                 _source = "Lookup unavailable";
-                _notice = "Lyrics lookup: " + ex.Message + " · Try Open .lrc";
+                _statusLabel.Text = "Lyrics lookup unavailable · Local files supported";
+                _notice = "Lyrics lookup: " + ex.Message + " · Try Open lyrics file";
             }
         }
     }
@@ -484,7 +535,8 @@ internal sealed class LyricsController : Form
     private static HttpClient CreateHttpClient()
     {
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("MelismaWindowsLyricsPreview/0.4.2");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(
+            "MelismaWindows/0.6 (Windows; https://github.com/MixterVee/Melisma-32bit)");
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         return client;
     }
@@ -939,16 +991,31 @@ internal sealed class LyricsCanvas : Control
             var baseColor = index < active ? Color.FromArgb(158, 109, 133) : Other;
             var color = Blend(baseColor, Highlight, emphasis);
             var line = frame.Lines[index];
-            int? playedCharacters = null;
+            float? playedCharacters = null;
             if (index == active && line.Words is { Count: > 0 } && progress >= 0.7f)
             {
-                int count = 0;
+                float count = 0f;
                 foreach (var word in line.Words)
                 {
                     if (frame.LyricPositionMs < word.AtMs) break;
-                    count += word.Text.Length;
+
+                    // Smoothly fill ONLY when the source provides both onset
+                    // and end timestamps. For onset-only enhanced LRC, snap
+                    // the entire word on its genuine timestamp (no guessing).
+                    if (word.EndMs > word.AtMs && _display.SmoothWordFill)
+                    {
+                        float wordProgress = Math.Clamp(
+                            (frame.LyricPositionMs - word.AtMs) /
+                            (float)(word.EndMs - word.AtMs), 0f, 1f);
+                        count += word.Text.Length * wordProgress;
+                        if (wordProgress < 1f) break;
+                    }
+                    else
+                    {
+                        count += word.Text.Length;
+                    }
                 }
-                playedCharacters = Math.Clamp(count, 0, line.Text.Length);
+                playedCharacters = Math.Clamp(count, 0f, line.Text.Length);
             }
             DrawLayout(g, layout, y, playedCharacters.HasValue ? Other : color,
                 playedCharacters, emphasis, edgeOpacity);
@@ -1417,7 +1484,7 @@ internal sealed class LyricsCanvas : Control
     }
 
     private void DrawLayout(Graphics g, TextLayout layout,
-        float centerY, Color color, int? playedCharacters, float emphasis,
+        float centerY, Color color, float? playedCharacters, float emphasis,
         float opacity = 1f)
     {
         // The row breaks and reserved height remain fixed. Only the actual
@@ -1459,10 +1526,10 @@ internal sealed class LyricsCanvas : Control
             g.DrawString(row.Text, displayFont, normalBrush, rect, format);
 
             if (!playedCharacters.HasValue) continue;
-            int playedInRow = Math.Clamp(playedCharacters.Value - row.Start,
-                0, row.Text.Length);
-            if (playedInRow == 0) continue;
-            if (playedInRow == row.Text.Length)
+            float playedInRow = Math.Clamp(playedCharacters.Value - row.Start,
+                0f, row.Text.Length);
+            if (playedInRow <= 0f) continue;
+            if (playedInRow >= row.Text.Length)
             {
                 g.DrawString(row.Text, displayFont, playedBrush, rect, format);
                 continue;
@@ -1471,7 +1538,16 @@ internal sealed class LyricsCanvas : Control
             // The clip is relative to this wrapped row, not the original LRC
             // line, so multi-row enhanced lyrics highlight correctly.
             float totalWidth = TextWidth(g, row.Text, displayFont);
-            float playedWidth = TextWidth(g, row.Text[..playedInRow], displayFont);
+            int wholeCharacters = Math.Clamp((int)MathF.Floor(playedInRow),
+                0, row.Text.Length);
+            float fraction = playedInRow - wholeCharacters;
+            float playedWidth = TextWidth(g, row.Text[..wholeCharacters], displayFont);
+            if (fraction > 0f && wholeCharacters < row.Text.Length)
+            {
+                float next = TextWidth(g, row.Text[..(wholeCharacters + 1)],
+                    displayFont);
+                playedWidth += Math.Max(0f, next - playedWidth) * fraction;
+            }
             float left = rect.Left + (rect.Width - totalWidth) / 2f;
             var saved = g.Save();
             g.SetClip(new RectangleF(left - 1f, rect.Top,
