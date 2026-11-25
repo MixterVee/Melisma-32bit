@@ -59,12 +59,16 @@ foreach (var song in songs)
     {
         var amll = await AmllWordProvider.FindAsync(client, song.Title, song.Artist, CancellationToken.None);
         Console.WriteLine($"  AMLL application result: {(amll == null ? "none" : $"{amll.Count} lines, {amll.Count(x => x.Words is { Count: > 1 })} word-timed")}");
+        if (amll != null) Console.WriteLine("  AMLL first 8 cue ms: " +
+            string.Join(", ", amll.Take(8).Select(l => l.AtMs)));
     }
     catch (Exception ex) { Console.WriteLine($"  AMLL application exception: {ex.GetType().Name}: {ex.Message}"); }
     try
     {
         var better = await BetterLyricsWordProvider.FindAsync(client, song.Title, song.Artist, song.Album, song.Duration, CancellationToken.None);
         Console.WriteLine($"  Better application result: {(better == null ? "none" : $"{better.Value.Source}, {better.Value.Lines.Count} lines, {better.Value.Lines.Count(x => x.Words is { Count: > 1 })} word-timed")}");
+        if (better != null) Console.WriteLine("  Better first 8 cue ms: " +
+            string.Join(", ", better.Value.Lines.Take(8).Select(l => l.AtMs)));
     }
     catch (Exception ex) { Console.WriteLine($"  Better application exception: {ex.GetType().Name}: {ex.Message}"); }
     await Task.Delay(350);
