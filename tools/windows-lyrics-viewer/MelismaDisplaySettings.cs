@@ -40,6 +40,9 @@ internal sealed class MelismaDisplaySettings
     public MelismaLyricsFont Font { get; set; } = MelismaLyricsFont.System;
     public bool DepthBlur { get; set; } = false;
     public bool SimpleMode { get; set; } = false;
+    // Exact word timestamps stay authoritative. This affects only the
+    // visual fill WITHIN an explicitly timed word (start AND end).
+    public bool SmoothWordFill { get; set; } = true;
     public bool MinimalMode { get; set; } = false;
 
     public string FontFamily => Font switch
@@ -181,10 +184,14 @@ internal sealed class MelismaDisplaySettingsForm : Form
             value => settings.DepthBlur = value);
         Toggle(lyrics, "Simple mode (calmer emphasis)", settings.SimpleMode,
             value => settings.SimpleMode = value);
+        Toggle(lyrics, "Smooth word fill (real timestamps)", settings.SmoothWordFill,
+            value => settings.SmoothWordFill = value);
         Toggle(lyrics, "Minimal mode (hide sung lines)", settings.MinimalMode,
             value => settings.MinimalMode = value);
-        Note(lyrics, "Text wrapping is always calculated before each lyric " +
-            "becomes active. These options affect both the laptop preview and the TV.");
+        Note(lyrics, "Word fill uses actual TTML start/end times (or " +
+            "enhanced-LRC word onsets), never made-up word durations. " +
+            "Without word timings, lines continue syncing normally. " +
+            "These options affect both the preview and the TV.");
 
         var bottom = new Panel { Dock = DockStyle.Bottom, Height = 51,
             BackColor = Color.FromArgb(17, 23, 39) };
