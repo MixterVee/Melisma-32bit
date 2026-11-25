@@ -97,7 +97,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.13";
+        Text = "Melisma Universal · Windows v0.6.14";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -1476,6 +1476,18 @@ internal sealed class LyricsCanvas : Control
     private readonly List<TextLayout> _planned = new();
     private readonly List<string> _plannedTexts = new();
     private float[] _lineCenters = [];
+    private float[] _interludeCenters = [];
+    private InterludeSpan? _dotGap;
+    private long _dotFrameTick;
+    private readonly AndroidSpring[] _dotScale = Enumerable.Range(0, 3)
+        .Select(_ => new AndroidSpring(0.75f, 0.7f, 0.6f)).ToArray();
+    private readonly AndroidSpring[] _dotLift = Enumerable.Range(0, 3)
+        .Select(_ => new AndroidSpring(0f, 1.25f, 0.4f)).ToArray();
+    private readonly AndroidSpring[] _dotOpacity = Enumerable.Range(0, 3)
+        .Select(_ => new AndroidSpring(0.35f, 1f, 0.5f)).ToArray();
+    private readonly AndroidSpring _wordSpring = new(1f, 0.88f, 0.64f);
+    private string _wordSpringIdentity = "";
+    private long _wordFrameTick;
     private float _plannedWidth = -1f, _plannedPoints = -1f, _plannedDpi = -1f;
     private string _plannedSong = "", _plannedArtist = "", _plannedFontFamily = "";
     private string _lastPlainLyrics = "";
@@ -1610,12 +1622,17 @@ internal sealed class LyricsCanvas : Control
         // the viewport between those positions; never recalculate positions
         // when a line becomes highlighted or its rendered font grows.
         float anchor = _lineCenters[center];
-        if (inGap && upcoming >= 0 && active >= 0)
+        if (inGap && upcoming >= 0 &&
+            upcoming < _interludeCenters.Length &&
+            !float.IsNaN(_interludeCenters[upcoming]))
         {
-            float ahead = LyricPreviewMotion.Ahead(
-                interludeWindow!.Value, frame.LyricPositionMs);
-            anchor = _lineCenters[center] +
-                (_lineCenters[upcoming] - _lineCenters[center]) * ahead;
+            // Android's active element is the interlude ROW inserted before
+            // the next lyric, focused at 42% of the screen. Preview lyrics
+            // stay in the same scrolling layout above and below it.
+            anchor = AndroidInterludeRow.Focus(interludeWindow!.Value,
+                frame.LyricPositionMs, _interludeCenters[upcoming],
+                _lineCenters[upcoming],
+                active >= 0 ? _lineCenters[active] : null);
         }
         else if (animate)
         {
@@ -1627,7 +1644,8 @@ internal sealed class LyricsCanvas : Control
         {
             if (_display.MinimalMode && index < active) continue;
             var layout = _planned[index];
-            float y = Height * 0.50f + _lineCenters[index] - anchor;
+            float y = Height * AndroidInterludeRow.FocusFraction +
+                _lineCenters[index] - anchor;
             if (y + layout.TotalHeight / 2f < 0 ||
                 y - layout.TotalHeight / 2f > Height) continue;
 
@@ -1696,20 +1714,17 @@ internal sealed class LyricsCanvas : Control
                     animated.Value, emphasis, edgeOpacity * reveal);
         }
 
-        if (showDots && upcoming >= 0)
+        if (showDots && upcoming >= 0 &&
+            upcoming < _interludeCenters.Length &&
+            !float.IsNaN(_interludeCenters[upcoming]))
         {
-            // Place the dots between the previewed line and the following
-            // row, not on top of the words the viewer is preparing to sing.
-            float previewY = Height * 0.50f + _lineCenters[upcoming] - anchor;
-            float room = upcoming + 1 < _planned.Count
-                ? (_lineCenters[upcoming + 1] - _lineCenters[upcoming]) * 0.5f
-                : Math.Clamp(Height / 7f, 34f, 65f);
-            float dotsY = previewY + Math.Clamp(room, 27f, 63f);
-            long remaining = interludeWindow!.Value.EndMs -
-                LyricsInterlude.PreHideMs - frame.LyricPositionMs;
-            float exitFade = Math.Clamp(remaining / 380f, 0f, 1f);
-            DrawBouncingDots(g, frame.LyricPositionMs, dotsY,
-                reveal * exitFade);
+            // Android's three bullet glyphs occupy their own LEFT-ALIGNED
+            // row, BEFORE the upcoming lyric, not below it or centered as
+            // a floating overlay. Each dot owns a third of the gap.
+            float dotsY = Height * AndroidInterludeRow.FocusFraction +
+                _interludeCenters[upcoming] - anchor;
+            DrawAndroidInterlude(g, interludeWindow!.Value,
+                frame.LyricPositionMs, dotsY, upcoming, reveal);
         }
         g.Restore(textClip);
         DrawSourceCredit(g, frame);
@@ -1750,6 +1765,73 @@ internal sealed class LyricsCanvas : Control
             g.DrawString(rows[i].Trim(), font, textBrush,
                 new RectangleF(rect.Left, top + (i - _plainScrollLines) * lineHeight,
                     rect.Width, lineHeight), format);
+    }
+
+    private void DrawAndroidInterlude(Graphics g, InterludeSpan gap,
+        long positionMs, float centerY, int upcoming, float reveal)
+    {
+        // Actual Android behaviour: LyricsLayout.interludeLayout allocates
+        // three BULLET glyphs in a left-aligned row before the next lyric.
+        // Each dot uses its own 1/3-gap window with spring-driven opacity,
+        // scale and lift. No repeating 1.8s loading-spinner animation.
+        long now = Environment.TickCount64;
+        if (_dotGap != gap)
+        {
+            _dotGap = gap;
+            _dotFrameTick = now;
+            for (int i = 0; i < 3; i++)
+            {
+                _dotScale[i].Snap(0.75f);
+                _dotLift[i].Snap(0f);
+                _dotOpacity[i].Snap(_display.SimpleMode ? 0.27f : 0.35f);
+            }
+        }
+        float dt = Math.Clamp((now - _dotFrameTick) / 1000f, 0f, 1f / 15f);
+        _dotFrameTick = now;
+
+        float fontPoints = _planned[upcoming].Font.SizeInPoints *
+            AndroidInterludeRow.DotFontMultiplier;
+        using var measuringFont = new Font(_display.FontFamily, fontPoints,
+            FontStyle.Bold);
+        float dotWidth = TextWidth(g, "•", measuringFont);
+        float dotFontPx = fontPoints * g.DpiY / 72f;
+        float gapPx = dotFontPx * AndroidInterludeRow.DotGapMultiplier;
+        float left = LyricsArea.Left + SidePadding;
+        using var format = new StringFormat(StringFormat.GenericTypographic)
+        {
+            Alignment = StringAlignment.Near,
+            LineAlignment = StringAlignment.Center,
+            FormatFlags = StringFormatFlags.NoWrap
+        };
+
+        long remain = gap.EndMs - AndroidInterludeRow.PreHideMs - positionMs;
+        float outOpacity = Math.Clamp(remain / 240f, 0f, 1f);
+        for (int i = 0; i < 3; i++)
+        {
+            float t = AndroidInterludeRow.DotProgress(gap, positionMs, i);
+            _dotScale[i].SetGoal(AndroidInterludeRow.DotScale(t));
+            _dotLift[i].SetGoal(AndroidInterludeRow.DotLift(t));
+            _dotOpacity[i].SetGoal(AndroidInterludeRow.DotOpacity(t, _display.SimpleMode));
+            float scale = Math.Clamp(_dotScale[i].Step(dt), 0.65f, 1.2f);
+            float lift = _dotLift[i].Step(dt) * dotFontPx;
+            float alpha = Math.Clamp(_dotOpacity[i].Step(dt) * reveal *
+                outOpacity, 0f, 1f);
+            if (alpha < 0.01f) continue;
+            using var font = new Font(_display.FontFamily,
+                fontPoints * 0.75f * scale, FontStyle.Bold);
+            float x = left + i * (dotWidth + gapPx);
+            var dotRect = new RectangleF(x,
+                centerY - dotFontPx * 0.7f + lift,
+                dotWidth + 8f, dotFontPx * 1.5f);
+            using var halo = new SolidBrush(Color.FromArgb(
+                Math.Clamp((int)(38f * alpha), 0, 255), Highlight));
+            using var white = new SolidBrush(Color.FromArgb(
+                Math.Clamp((int)(255f * alpha), 0, 255), Color.White));
+            var glowRect = dotRect;
+            glowRect.Offset(0f, 0.9f);
+            g.DrawString("•", font, halo, glowRect, format);
+            g.DrawString("•", font, white, dotRect, format);
+        }
     }
 
     private void DrawBouncingDots(Graphics g, long clockMs,
@@ -2129,19 +2211,40 @@ internal sealed class LyricsCanvas : Control
         _plannedArtist = frame.Artist;
         _plannedFontFamily = _display.FontFamily;
         _lineCenters = new float[frame.Lines.Count];
+        _interludeCenters = Enumerable.Repeat(float.NaN,
+            frame.Lines.Count).ToArray();
 
+        float fontPx = preferredPoints * g.DpiY / 72f;
+        float interludeHeight = AndroidInterludeRow.Height(fontPx,
+            _controllerPreview);
         for (int i = 0; i < frame.Lines.Count; i++)
         {
             var lyric = frame.Lines[i];
-            // Use the full highlighted size AND bold weight to decide the
-            // wrap now, not when the line is selected. A small safety margin
-            // prevents glyph overhang at the screen boundary.
+            // Keep a full-sized, stable layout, like Android. Neither the
+            // line's font size nor its left edge should shift when sung.
             _planned.Add(MakeLayout(g, lyric.Text, preferredPoints,
                 true, availableWidth * 0.96f));
             _plannedTexts.Add(lyric.Text);
-            if (i > 0)
+
+            // Android Lyrics.withInterludes inserts a real dot row BEFORE
+            // each vocal that follows >=3s without vocals. Reserve its
+            // height in the permanent layout, even when dots are hidden.
+            var gap = LyricsInterlude.Before(frame.Lines, i);
+            if (i == 0)
+            {
+                if (gap.HasValue)
+                    _interludeCenters[0] = AndroidInterludeRow.IntroCenter(
+                        _lineCenters[0], _planned[0].TotalHeight, interludeHeight);
+            }
+            else
+            {
                 _lineCenters[i] = _lineCenters[i - 1] +
-                    Separation(_planned[i - 1], _planned[i]);
+                    Separation(_planned[i - 1], _planned[i]) +
+                    (gap.HasValue ? interludeHeight : 0f);
+                if (gap.HasValue)
+                    _interludeCenters[i] = AndroidInterludeRow.BetweenCenter(
+                        _lineCenters[i - 1], _lineCenters[i]);
+            }
         }
         _lastActive = int.MinValue;
         _transitionFrom = -1;
@@ -2301,16 +2404,27 @@ internal sealed class LyricsCanvas : Control
         if (wordText.Length == 0) return;
         var visualRow = layout.Rows[active.RowIndex];
 
-        float fontFactor = _display.SimpleMode
-            ? 0.84f + 0.16f * Math.Clamp(emphasis, 0f, 1f)
-            : 0.67f + 0.33f * Math.Clamp(emphasis, 0f, 1f);
-        using var baseFont = new Font(_display.FontFamily,
-            layout.Font.SizeInPoints * fontFactor,
-            emphasis >= 0.5f ? FontStyle.Bold : FontStyle.Regular,
-            GraphicsUnit.Point);
+        // Android draws every lyric with the SAME full-size base paint.
+        // Only the active word is transformed around its own measured centre.
+        // Windows previously shrank inactive lines to 67%, then grew the
+        // whole line, which made words appear to be pulled sideways.
+        Font baseFont = layout.Font;
+        string springId = _revealedDocumentKey + "|" +
+            line.AtMs + "|" + active.WordIndex;
+        long now = Environment.TickCount64;
+        if (_wordSpringIdentity != springId)
+        {
+            _wordSpringIdentity = springId;
+            _wordSpring.Snap(1f);
+            _wordFrameTick = now;
+        }
+        float dt = Math.Clamp((now - _wordFrameTick) / 1000f, 0f, 1f / 15f);
+        _wordFrameTick = now;
+        _wordSpring.SetGoal(AndroidWordScale.Target(active.Pulse.Progress));
+        float wordScale = Math.Clamp(_wordSpring.Step(dt), 0.92f, 1.12f);
         using var grownFont = new Font(_display.FontFamily,
-            baseFont.SizeInPoints * active.Pulse.Scale,
-            baseFont.Style, GraphicsUnit.Point);
+            baseFont.SizeInPoints * wordScale, baseFont.Style,
+            GraphicsUnit.Point);
 
         float top = centerY - layout.TotalHeight / 2f;
         float width = Math.Max(1f, LyricsArea.Width - 2f * SidePadding);
@@ -2325,12 +2439,12 @@ internal sealed class LyricsCanvas : Control
         float fullWidth = TextWidth(g, visualRow.Text, baseFont);
         float beforeWidth = TextWidth(g, visualRow.Text[..begin], baseFont);
         float throughWidth = TextWidth(g, visualRow.Text[..finish], baseFont);
-        float originalLeft = rect.Left + (rect.Width - fullWidth) / 2f;
-        float wordCenterX = originalLeft + (beforeWidth + throughWidth) / 2f;
+        float wordCenterX = rect.Left +
+            (beforeWidth + throughWidth) * 0.5f;
         float grownWidth = TextWidth(g, wordText, grownFont);
         float lifted = active.Pulse.LiftEm * baseFont.GetHeight(g);
         var grownRect = new RectangleF(
-            wordCenterX - grownWidth / 2f, rect.Top - lifted,
+            wordCenterX - grownWidth * 0.5f, rect.Top - lifted,
             grownWidth + 5f, rect.Height + 2f);
 
         using var typographic = new StringFormat(
@@ -2376,13 +2490,10 @@ internal sealed class LyricsCanvas : Control
     {
         // The row breaks and reserved height remain fixed. Only the actual
         // font size/color animate, so upcoming lyrics are already wrapped.
-        float scale = _display.SimpleMode
-            ? 0.84f + 0.16f * Math.Clamp(emphasis, 0f, 1f)
-            : 0.67f + 0.33f * Math.Clamp(emphasis, 0f, 1f);
-        using var displayFont = new Font(_display.FontFamily,
-            layout.Font.SizeInPoints * scale,
-            emphasis >= 0.5f ? FontStyle.Bold : FontStyle.Regular,
-            GraphicsUnit.Point);
+        // Fixed Android-style font metrics for all lines. Colour, word
+        // emphasis and scrolling animate; the text block NEVER re-centres
+        // because its font size changed.
+        Font displayFont = layout.Font;
         opacity = Math.Clamp(opacity, 0f, 1f);
         using var normalBrush = new SolidBrush(Color.FromArgb(
             (int)Math.Round(color.A * opacity), color));
@@ -2390,7 +2501,7 @@ internal sealed class LyricsCanvas : Control
             (int)Math.Round(Highlight.A * opacity), Highlight));
         using var format = new StringFormat(StringFormat.GenericTypographic)
         {
-            Alignment = StringAlignment.Center,
+            Alignment = StringAlignment.Near,
             LineAlignment = StringAlignment.Center,
             FormatFlags = StringFormatFlags.NoWrap
         };
@@ -2415,8 +2526,7 @@ internal sealed class LyricsCanvas : Control
                 if (startChar >= 0 && endChar <= row.Text.Length &&
                     endChar > startChar)
                 {
-                    float rowWidth = TextWidth(g, row.Text, displayFont);
-                    float rowLeft = rect.Left + (rect.Width - rowWidth) / 2f;
+                    float rowLeft = rect.Left;
                     float xStart = TextWidth(g, row.Text[..startChar], displayFont);
                     float xEnd = TextWidth(g, row.Text[..endChar], displayFont);
                     originalWordMask = g.Save();
@@ -2461,7 +2571,7 @@ internal sealed class LyricsCanvas : Control
                     displayFont);
                 playedWidth += Math.Max(0f, next - playedWidth) * fraction;
             }
-            float left = rect.Left + (rect.Width - totalWidth) / 2f;
+            float left = rect.Left;
             var saved = g.Save();
             g.SetClip(new RectangleF(left - 1f, rect.Top,
                 playedWidth + 2f, rect.Height), CombineMode.Intersect);

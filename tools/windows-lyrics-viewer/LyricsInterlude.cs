@@ -21,6 +21,21 @@ internal static class LyricsInterlude
     internal static InterludeSpan? At(IReadOnlyList<LrcLine> lines, long playheadMs) =>
         Find(lines, playheadMs, hideEarly: true);
 
+    /// <summary>
+    /// An interlude is a real layout row *before* the next vocal line in
+    /// Android Melisma. Query by next-line index while building the layout,
+    /// so its position never jumps when the playhead enters a gap.
+    /// </summary>
+    internal static InterludeSpan? Before(IReadOnlyList<LrcLine> lines, int nextIndex)
+    {
+        if (nextIndex < 0 || nextIndex >= lines.Count) return null;
+        long start = nextIndex == 0 ? 0 :
+            EstimatedVocalEnd(lines[nextIndex - 1], lines[nextIndex].AtMs);
+        long end = Math.Max(0, lines[nextIndex].AtMs);
+        return end - start >= MinimumGapMs
+            ? new InterludeSpan(start, end) : null;
+    }
+
     private static InterludeSpan? Find(IReadOnlyList<LrcLine> lines,
         long playheadMs, bool hideEarly)
     {
