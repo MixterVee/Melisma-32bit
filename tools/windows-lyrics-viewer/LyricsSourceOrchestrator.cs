@@ -102,13 +102,17 @@ internal static class LyricsSourceOrchestrator
             }, token),
             Query("lrclib", "LRCLIB", lineFallback, token),
         };
-        // v0.6.6 used Task.WhenAll here and withheld EVERY lyric line
-        // until the slowest service completed or timed out. A user could
-        // hear 15-20 seconds of vocals while usable LRCLIB or TTML results
-        // were already available. Publish the best available result on
-        // EACH successful completion, then continue checking for better
-        // word timing in the background of this same awaited lookup.
-        var pending = jobs.ToList();
+        return await CollectAsAvailableAsync(jobs, token, onProgress);
+    }
+
+    internal static async Task<Lookup> CollectAsAvailableAsync(
+        IEnumerable<Task<Answer>> providerTasks, CancellationToken token,
+        Action<Lookup>? onProgress = null)
+    {
+        // v0.6.6 used Task.WhenAll and withheld ALL lyrics until the last
+        // service finished. Publish the best available result as soon as any
+        // successful provider completes, while still awaiting better timing.
+        var pending = providerTasks.ToList();
         var completed = new List<Answer>(jobs.Length);
         while (pending.Count > 0)
         {
