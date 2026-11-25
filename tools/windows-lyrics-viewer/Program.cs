@@ -33,6 +33,8 @@ internal sealed class LyricsController : Form
     private readonly NativeTimelineReader _bridge = new();
     private readonly SongOffsetStore _offsets = new();
     private readonly AlbumArtworkState _artwork = new();
+    private readonly MelismaDisplaySettings _display = MelismaDisplaySettings.Load();
+    private MelismaDisplaySettingsForm? _settingsWindow;
     private readonly System.Windows.Forms.Timer _screenTimer = new() { Interval = 55 };
     private readonly System.Windows.Forms.Timer _mediaTimer = new() { Interval = 1200 };
     private readonly Label _trackLabel = Label(18, Color.White, true);
@@ -63,7 +65,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows Lyrics Preview v0.4.2";
+        Text = "Melisma Universal · Melisma Universal Windows v0.5";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -127,51 +129,26 @@ internal sealed class LyricsController : Form
         toolbar.Controls.Add(_secondScreenButton);
         toolbarArea.Controls.Add(toolbar, 0, 0);
 
-        var artControls = new FlowLayoutPanel
+        var extraControls = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill, WrapContents = false, AutoScroll = true,
             FlowDirection = FlowDirection.LeftToRight
         };
-        var artEnabled = new CheckBox
-        {
-            Text = "Album art background", AutoSize = true,
-            Checked = _artwork.Enabled, ForeColor = Color.White,
-            Margin = new Padding(0, 11, 12, 0)
-        };
-        artEnabled.CheckedChanged += (_, _) =>
-        {
-            _artwork.Enabled = artEnabled.Checked;
-            _artwork.SaveOptions();
-            _preview.Invalidate();
-            _projection?.Redraw();
-        };
-        artControls.Controls.Add(artEnabled);
-
-        var fadeLabel = Label(9.5f, Color.FromArgb(175, 188, 204));
-        fadeLabel.Text = "Fade (seconds):";
-        fadeLabel.AutoSize = true;
-        fadeLabel.Margin = new Padding(0, 11, 7, 0);
-        artControls.Controls.Add(fadeLabel);
-        var fadeSeconds = new NumericUpDown
-        {
-            Minimum = 1, Maximum = 10, Value = _artwork.FadeSeconds,
-            Width = 52, Height = 32, Margin = new Padding(0, 5, 12, 0),
-            Font = new Font("Segoe UI", 10)
-        };
-        fadeSeconds.ValueChanged += (_, _) =>
-        {
-            _artwork.FadeSeconds = (int)fadeSeconds.Value;
-            _artwork.SaveOptions();
-        };
-        artControls.Controls.Add(fadeSeconds);
-
-        var openCover = Button("Open cover image", 152);
+        var settingsButton = Button("Display settings…", 164);
+        settingsButton.Click += OpenDisplaySettings;
+        extraControls.Controls.Add(settingsButton);
+        var openCover = Button("Open cover image", 162);
         openCover.Click += OpenCoverImage;
-        artControls.Controls.Add(openCover);
-        toolbarArea.Controls.Add(artControls, 0, 1);
+        extraControls.Controls.Add(openCover);
+        var note = Label(9.5f, Color.FromArgb(175, 188, 204));
+        note.Text = "Lyrics / Cinema · Background · Lyrics display";
+        note.Width = 400;
+        note.Height = 37;
+        extraControls.Controls.Add(note);
+        toolbarArea.Controls.Add(extraControls, 0, 1);
         grid.Controls.Add(toolbarArea, 0, 2);
 
-        _preview = new LyricsCanvas(CurrentFrame, _artwork, controllerPreview: true) { Dock = DockStyle.Fill };
+        _preview = new LyricsCanvas(CurrentFrame, _artwork, _display, controllerPreview: true) { Dock = DockStyle.Fill };
         grid.Controls.Add(_preview, 0, 3);
 
         // Keep the footer quiet: it only changes when the selected song or
@@ -208,6 +185,7 @@ internal sealed class LyricsController : Form
             _searchCancellation?.Cancel();
             _searchCancellation?.Dispose();
             _projection?.Close();
+            _settingsWindow?.Close();
             _artwork.Dispose();
         };
     }
@@ -348,6 +326,22 @@ internal sealed class LyricsController : Form
         }
     }
 
+    private void OpenDisplaySettings(object? sender, EventArgs e)
+    {
+        if (_settingsWindow != null && !_settingsWindow.IsDisposed)
+        {
+            _settingsWindow.Activate();
+            return;
+        }
+        _settingsWindow = new MelismaDisplaySettingsForm(_display, _artwork, () =>
+        {
+            _preview.Invalidate();
+            _projection?.Redraw();
+        });
+        _settingsWindow.FormClosed += (_, _) => _settingsWindow = null;
+        _settingsWindow.Show(this);
+    }
+
     private void ChangeOffset(int delta)
     {
         _offsetMs = Math.Clamp(_offsetMs + delta, -20000, 20000);
@@ -399,7 +393,7 @@ internal sealed class LyricsController : Form
                 "Melisma — second display", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
-        _projection = new KaraokeDisplay(screen, CurrentFrame, _artwork);
+        _projection = new KaraokeDisplay(screen, CurrentFrame, _artwork, _display);
         _projection.FormClosed += (_, _) =>
         {
             _projection = null;
@@ -673,7 +667,7 @@ internal static class LrcParser
     }
 }
 
-internal sealed record AlbumArtOptions(bool Enabled, int FadeSeconds);
+internal sealed record AlbumArtOptions(bool Enabled, float FadeSeconds);
 
 internal sealed class AlbumArtworkState : IDisposable
 {
@@ -685,12 +679,14 @@ internal sealed class AlbumArtworkState : IDisposable
     private Bitmap? _current;
     private long _transitionTick = Environment.TickCount64;
     public bool Enabled { get; set; } = true;
-    public int FadeSeconds { get; set; } = 4;
+    public float FadeSeconds { get; set; } = 4;
     public Image? Previous => _previous;
     public Image? Current => _current;
-    public float Progress => Math.Clamp(
-        (Environment.TickCount64 - _transitionTick) / (FadeSeconds * 1000f),
-        0f, 1f);
+    public float Progress => ProgressFor(FadeSeconds);
+    public float PanelProgress => ProgressFor(3.4f);
+    private float ProgressFor(float seconds) => Math.Clamp(
+        (Environment.TickCount64 - _transitionTick) /
+            (Math.Max(1f, seconds) * 1000f), 0f, 1f);
 
     public AlbumArtworkState()
     {
@@ -754,7 +750,9 @@ internal sealed class LyricsCanvas : Control
 {
     private readonly Func<LyricFrame> _frame;
     private readonly AlbumArtworkState _artwork;
+    private readonly MelismaDisplaySettings _display;
     private readonly bool _controllerPreview;
+    private readonly List<(Image Source, int Blur, Bitmap Reduced)> _blurCache = new();
     private static readonly Color Highlight = Color.FromArgb(113, 236, 227);
     private static readonly Color Other = Color.FromArgb(142, 157, 181);
     private const float SidePadding = 26f;
@@ -767,7 +765,7 @@ internal sealed class LyricsCanvas : Control
     private readonly List<string> _plannedTexts = new();
     private float[] _lineCenters = [];
     private float _plannedWidth = -1f, _plannedPoints = -1f, _plannedDpi = -1f;
-    private string _plannedSong = "", _plannedArtist = "";
+    private string _plannedSong = "", _plannedArtist = "", _plannedFontFamily = "";
 
     // A visual row remembers its original character offset so enhanced-LRC
     // word highlighting still follows the right words after a line wraps.
@@ -782,10 +780,11 @@ internal sealed class LyricsCanvas : Control
     }
 
     public LyricsCanvas(Func<LyricFrame> frame, AlbumArtworkState artwork,
-        bool controllerPreview = false)
+        MelismaDisplaySettings display, bool controllerPreview = false)
     {
         _frame = frame;
         _artwork = artwork;
+        _display = display;
         _controllerPreview = controllerPreview;
         // Paint background, art and lyrics together in a single buffered
         // frame. Separate background erases can cause a brief visible flash,
@@ -810,12 +809,13 @@ internal sealed class LyricsCanvas : Control
         g.SmoothingMode = SmoothingMode.AntiAlias;
         g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
 
-        using var background = new LinearGradientBrush(ClientRectangle,
-            Color.FromArgb(14, 32, 47), Color.FromArgb(37, 21, 55),
-            LinearGradientMode.ForwardDiagonal);
-        g.FillRectangle(background, ClientRectangle);
         DrawArtworkBackground(g);
         var frame = _frame();
+        if (_display.Layout == MelismaViewMode.Cinema)
+            DrawCinemaPanel(g, frame);
+        var region = LyricsArea;
+        var textClip = g.Save();
+        g.SetClip(region, CombineMode.Intersect);
 
         if (frame.Lines.Count == 0)
         {
@@ -825,6 +825,7 @@ internal sealed class LyricsCanvas : Control
             DrawMessage(g, "♪", Height * 0.33f, 76, Highlight, true);
             DrawMessage(g, "Waiting for synchronized lyrics", Height * 0.55f, 22, Color.White, true);
             DrawMessage(g, frame.Message, Height * 0.67f, 12, Other, false);
+            g.Restore(textClip);
             return;
         }
 
@@ -856,6 +857,7 @@ internal sealed class LyricsCanvas : Control
 
         for (int index = 0; index < _planned.Count; index++)
         {
+            if (_display.MinimalMode && index < active) continue;
             var layout = _planned[index];
             float y = Height * 0.50f + _lineCenters[index] - anchor;
             if (y + layout.TotalHeight / 2f < 0 ||
@@ -871,7 +873,8 @@ internal sealed class LyricsCanvas : Control
 
             float emphasis = index == active ? eased :
                 animate && index == _transitionFrom ? 1f - eased : 0f;
-            var color = Blend(Other, Highlight, emphasis);
+            var baseColor = index < active ? Color.FromArgb(158, 109, 133) : Other;
+            var color = Blend(baseColor, Highlight, emphasis);
             var line = frame.Lines[index];
             int? playedCharacters = null;
             if (index == active && line.Words is { Count: > 0 } && progress >= 0.7f)
@@ -886,6 +889,31 @@ internal sealed class LyricsCanvas : Control
             }
             DrawLayout(g, layout, y, playedCharacters.HasValue ? Other : color,
                 playedCharacters, emphasis, edgeOpacity);
+        }
+        g.Restore(textClip);
+    }
+
+    private RectangleF LyricsArea
+    {
+        get
+        {
+            if (_display.Layout != MelismaViewMode.Cinema)
+                return ClientRectangle;
+            float panelWidth = Width * 0.42f;
+            if (_display.ArtworkSide == ArtworkPanelSide.Left)
+                return new RectangleF(panelWidth, 0, Width - panelWidth, Height);
+            return new RectangleF(0, 0, Width - panelWidth, Height);
+        }
+    }
+
+    private RectangleF MediaArea
+    {
+        get
+        {
+            float panelWidth = Width * 0.42f;
+            return _display.ArtworkSide == ArtworkPanelSide.Left
+                ? new RectangleF(0, 0, panelWidth, Height)
+                : new RectangleF(Width - panelWidth, 0, panelWidth, Height);
         }
     }
 
@@ -902,41 +930,200 @@ internal sealed class LyricsCanvas : Control
         return strength * strength * (3f - 2f * strength);
     }
 
+    private static Color Sample(Image? image, float x, float y, Color fallback)
+    {
+        try
+        {
+            if (image is Bitmap bitmap && bitmap.Width > 0 && bitmap.Height > 0)
+                return bitmap.GetPixel(
+                    Math.Clamp((int)(bitmap.Width * x), 0, bitmap.Width - 1),
+                    Math.Clamp((int)(bitmap.Height * y), 0, bitmap.Height - 1));
+        }
+        catch (Exception) { /* A missing/invalid image falls back to the palette. */ }
+        return fallback;
+    }
+
     private void DrawArtworkBackground(Graphics g)
     {
-        if (!_artwork.Enabled) return;
-        float fraction = _artwork.Progress;
-        if (_artwork.Previous != null && fraction < 1f)
-            DrawCover(g, _artwork.Previous, 0.72f * (1f - fraction));
-        if (_artwork.Current != null && fraction > 0f)
-            DrawCover(g, _artwork.Current, 0.72f * fraction);
+        var style = _display.Background == MelismaBackgroundStyle.Auto
+            ? MelismaBackgroundStyle.Living : _display.Background;
 
-        // Dark scrim keeps both the highlighted and upcoming lyrics legible,
-        // regardless of bright or busy cover art.
-        if (_artwork.Previous != null || _artwork.Current != null)
+        if (style == MelismaBackgroundStyle.Black)
         {
-            using var scrim = new SolidBrush(Color.FromArgb(143, 8, 12, 25));
+            g.Clear(Color.Black);
+            return;
+        }
+
+        var art = _artwork.Enabled ? _artwork.Current : null;
+        DrawPalette(g, art, style is MelismaBackgroundStyle.Living
+                                or MelismaBackgroundStyle.LivingClassic);
+
+        if (style is MelismaBackgroundStyle.Colour
+            or MelismaBackgroundStyle.LivingClassic) return;
+
+        if (!_artwork.Enabled) return;
+        var previous = _artwork.Previous;
+        var current = _artwork.Current;
+        float progress = _artwork.Progress;
+
+        int blur = style == MelismaBackgroundStyle.Living
+            ? 30 : _display.CoverBlur;
+        float opacity = style == MelismaBackgroundStyle.Living ? 0.56f : 0.76f;
+
+        Rectangle target = ClientRectangle;
+        if (style == MelismaBackgroundStyle.Living)
+        {
+            float t = Environment.TickCount64 / 1000f;
+            int marginX = (int)(Width * 0.065f);
+            int marginY = (int)(Height * 0.065f);
+            target = new Rectangle(
+                -marginX + (int)(MathF.Sin(t * 0.13f) * marginX * 0.45f),
+                -marginY + (int)(MathF.Cos(t * 0.10f) * marginY * 0.45f),
+                Width + marginX * 2, Height + marginY * 2);
+        }
+        if (previous != null && progress < 1f)
+            DrawCover(g, ReducedCover(previous, blur),
+                opacity * (1f - progress), target);
+        if (current != null && progress > 0f)
+            DrawCover(g, ReducedCover(current, blur), opacity * progress, target);
+
+        if (previous != null || current != null)
+        {
+            using var scrim = new SolidBrush(Color.FromArgb(157, 8, 12, 25));
             g.FillRectangle(scrim, ClientRectangle);
         }
     }
 
-    private void DrawCover(Graphics g, Image image, float opacity)
+    private void DrawPalette(Graphics g, Image? art, bool moving)
     {
-        if (Width <= 0 || Height <= 0 || opacity <= 0f) return;
-        float sourceRatio = image.Width / (float)image.Height;
-        float viewRatio = Width / (float)Height;
-        float cropWidth = image.Width;
-        float cropHeight = image.Height;
-        if (sourceRatio > viewRatio) cropWidth = image.Height * viewRatio;
-        else cropHeight = image.Width / viewRatio;
+        var one = Sample(art, 0.24f, 0.28f, Color.FromArgb(42, 73, 107));
+        var two = Sample(art, 0.75f, 0.68f, Color.FromArgb(91, 36, 99));
+        float motion = moving ? MathF.Sin(Environment.TickCount64 / 4800f) * 0.18f : 0f;
+        float angle = 38f + motion * 115f;
+        using var fill = new LinearGradientBrush(ClientRectangle,
+            Darken(one, 0.40f), Darken(two, 0.43f), angle);
+        g.FillRectangle(fill, ClientRectangle);
+        using var veil = new SolidBrush(Color.FromArgb(75, 5, 11, 27));
+        g.FillRectangle(veil, ClientRectangle);
+    }
 
-        float cropX = (image.Width - cropWidth) * 0.5f;
-        float cropY = (image.Height - cropHeight) * 0.5f;
+    private static Color Darken(Color c, float amount) =>
+        Color.FromArgb((int)(c.R * amount),
+                       (int)(c.G * amount), (int)(c.B * amount));
+
+    private Image ReducedCover(Image source, int blur)
+    {
+        if (blur <= 0) return source;
+        blur = Math.Clamp(blur, 0, 67);
+        foreach (var item in _blurCache)
+            if (ReferenceEquals(item.Source, source) && item.Blur == blur)
+                return item.Reduced;
+
+        int target = Math.Clamp((int)(320f / (1f + blur / 4f)), 12, 320);
+        var reduced = new Bitmap(target, target);
+        using (var g = Graphics.FromImage(reduced))
+        {
+            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            g.DrawImage(source, new Rectangle(0, 0, target, target));
+        }
+        _blurCache.Add((source, blur, reduced));
+        while (_blurCache.Count > 2)
+        {
+            _blurCache[0].Reduced.Dispose();
+            _blurCache.RemoveAt(0);
+        }
+        return reduced;
+    }
+
+    private static void DrawCover(Graphics g, Image image, float opacity,
+        Rectangle target)
+    {
+        if (target.Width <= 0 || target.Height <= 0 || opacity <= 0f ||
+            image.Width <= 0 || image.Height <= 0) return;
+        float imageRatio = image.Width / (float)image.Height;
+        float viewRatio = target.Width / (float)target.Height;
+        float croppedWidth = image.Width;
+        float croppedHeight = image.Height;
+        if (imageRatio > viewRatio) croppedWidth = image.Height * viewRatio;
+        else croppedHeight = image.Width / viewRatio;
+
+        float x = (image.Width - croppedWidth) * 0.5f;
+        float y = (image.Height - croppedHeight) * 0.5f;
         using var attributes = new ImageAttributes();
-        var matrix = new ColorMatrix { Matrix33 = Math.Clamp(opacity, 0f, 1f) };
-        attributes.SetColorMatrix(matrix, ColorMatrixFlag.Default, ColorAdjustType.Bitmap);
-        g.DrawImage(image, ClientRectangle,
-            cropX, cropY, cropWidth, cropHeight, GraphicsUnit.Pixel, attributes);
+        attributes.SetColorMatrix(new ColorMatrix
+        {
+            Matrix33 = Math.Clamp(opacity, 0f, 1f)
+        });
+        g.DrawImage(image, target, x, y, croppedWidth, croppedHeight,
+            GraphicsUnit.Pixel, attributes);
+    }
+
+    private void DrawCinemaPanel(Graphics g, LyricFrame frame)
+    {
+        RectangleF area = MediaArea;
+        using (var shade = new SolidBrush(Color.FromArgb(125, 9, 14, 28)))
+            g.FillRectangle(shade, area);
+        using (var pen = new Pen(Color.FromArgb(65, 225, 233, 242), 1f))
+        {
+            float separator = _display.ArtworkSide == ArtworkPanelSide.Left
+                ? area.Right - 1f : area.Left + 1f;
+            g.DrawLine(pen, separator, 0, separator, Height);
+        }
+
+        float pad = Math.Clamp(area.Width * 0.065f, 13f, 36f);
+        float maxCover = Math.Min(area.Width - pad * 2f, area.Height * 0.58f);
+        maxCover = Math.Max(20f, maxCover);
+        float top = Math.Max(10f, area.Height * 0.10f);
+        var coverBox = new Rectangle(
+            (int)(area.Left + (area.Width - maxCover) / 2f),
+            (int)top, (int)maxCover, (int)maxCover);
+        using (var backing = new SolidBrush(Color.FromArgb(180, 20, 25, 39)))
+            g.FillRectangle(backing, coverBox);
+
+        if (_artwork.Enabled)
+        {
+            float fade = _artwork.PanelProgress; // Independent 3.4 s cover-panel fade.
+            if (_artwork.Previous != null && fade < 1f)
+                DrawCover(g, _artwork.Previous, 1f - fade, coverBox);
+            if (_artwork.Current != null && fade > 0f)
+                DrawCover(g, _artwork.Current, fade, coverBox);
+        }
+        if (!_artwork.Enabled || _artwork.Current == null && _artwork.Previous == null)
+        {
+            using var markFont = new Font("Segoe UI Symbol", Math.Clamp(maxCover / 5f, 14, 54));
+            using var mark = new SolidBrush(Color.FromArgb(180, 198, 216, 230));
+            using var center = new StringFormat
+            {
+                Alignment = StringAlignment.Center,
+                LineAlignment = StringAlignment.Center
+            };
+            g.DrawString("♪", markFont, mark, coverBox, center);
+        }
+
+        float textTop = coverBox.Bottom + Math.Clamp(area.Height * 0.035f, 10f, 25f);
+        float textHeight = Math.Max(48f, area.Bottom - textTop - 9f);
+        using var titleFont = new Font("Segoe UI",
+            Math.Clamp(area.Width / 21f, 13f, 23f), FontStyle.Bold);
+        using var artistFont = new Font("Segoe UI",
+            Math.Clamp(area.Width / 29f, 11f, 17f));
+        using var titleBrush = new SolidBrush(Color.White);
+        using var artistBrush = new SolidBrush(Color.FromArgb(205, 199, 212, 226));
+        using var alignment = new StringFormat
+        {
+            Alignment = StringAlignment.Center,
+            LineAlignment = StringAlignment.Near,
+            Trimming = StringTrimming.EllipsisWord
+        };
+        var titleRect = new RectangleF(area.Left + pad, textTop,
+            area.Width - pad * 2f, Math.Min(65f, textHeight * 0.58f));
+        g.DrawString(frame.Song, titleFont, titleBrush, titleRect, alignment);
+        if (frame.Artist.Length > 0)
+        {
+            var artistRect = new RectangleF(area.Left + pad,
+                titleRect.Bottom + 5f, area.Width - pad * 2f,
+                Math.Max(15f, textHeight - titleRect.Height - 8f));
+            g.DrawString(frame.Artist, artistFont, artistBrush, artistRect, alignment);
+        }
     }
 
     private void ClearPlan()
@@ -950,16 +1137,19 @@ internal sealed class LyricsCanvas : Control
         _plannedDpi = -1;
         _plannedSong = "";
         _plannedArtist = "";
+        _plannedFontFamily = "";
     }
 
     private void EnsurePlan(Graphics g, LyricFrame frame)
     {
-        float availableWidth = Math.Max(1f, Width - 2f * SidePadding);
-        float preferredPoints = Math.Clamp(Width / 31f, 20f, 43f);
+        float availableWidth = Math.Max(1f, LyricsArea.Width - 2f * SidePadding);
+        float preferredPoints = Math.Clamp(LyricsArea.Width / 31f, 20f, 43f) *
+            _display.FontScale;
         bool changed = _planned.Count != frame.Lines.Count ||
             _plannedWidth != availableWidth ||
             _plannedPoints != preferredPoints ||
             _plannedDpi != g.DpiY ||
+            _plannedFontFamily != _display.FontFamily ||
             _plannedSong != frame.Song || _plannedArtist != frame.Artist;
         if (!changed)
         {
@@ -978,6 +1168,7 @@ internal sealed class LyricsCanvas : Control
         _plannedDpi = g.DpiY;
         _plannedSong = frame.Song;
         _plannedArtist = frame.Artist;
+        _plannedFontFamily = _display.FontFamily;
         _lineCenters = new float[frame.Lines.Count];
 
         for (int i = 0; i < frame.Lines.Count; i++)
@@ -999,7 +1190,12 @@ internal sealed class LyricsCanvas : Control
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) ClearPlan();
+        if (disposing)
+        {
+            ClearPlan();
+            foreach (var cached in _blurCache) cached.Reduced.Dispose();
+            _blurCache.Clear();
+        }
         base.Dispose(disposing);
     }
 
@@ -1072,13 +1268,13 @@ internal sealed class LyricsCanvas : Control
                 new VisualRow(text[bestNextStart..], bestNextStart)];
     }
 
-    private static TextLayout MakeLayout(Graphics g, string text,
+    private TextLayout MakeLayout(Graphics g, string text,
         float preferredSize, bool bold, float width)
     {
         float size = Math.Max(10f, preferredSize);
         while (true)
         {
-            var font = new Font("Segoe UI", size,
+            var font = new Font(_display.FontFamily, size,
                 bold ? FontStyle.Bold : FontStyle.Regular, GraphicsUnit.Point);
             var rows = Wrap(g, text, font, width);
             bool allFit = rows.All(row => TextWidth(g, row.Text, font) <= width);
@@ -1100,7 +1296,7 @@ internal sealed class LyricsCanvas : Control
         float points, Color color, bool bold)
     {
         using var layout = MakeLayout(g, text, points, bold,
-            Math.Max(1f, Width - 2f * SidePadding));
+            Math.Max(1f, LyricsArea.Width - 2f * SidePadding));
         DrawLayout(g, layout, y, color, null, 1f);
     }
 
@@ -1110,8 +1306,10 @@ internal sealed class LyricsCanvas : Control
     {
         // The row breaks and reserved height remain fixed. Only the actual
         // font size/color animate, so upcoming lyrics are already wrapped.
-        float scale = 0.67f + 0.33f * Math.Clamp(emphasis, 0f, 1f);
-        using var displayFont = new Font("Segoe UI",
+        float scale = _display.SimpleMode
+            ? 0.84f + 0.16f * Math.Clamp(emphasis, 0f, 1f)
+            : 0.67f + 0.33f * Math.Clamp(emphasis, 0f, 1f);
+        using var displayFont = new Font(_display.FontFamily,
             layout.Font.SizeInPoints * scale,
             emphasis >= 0.5f ? FontStyle.Bold : FontStyle.Regular,
             GraphicsUnit.Point);
@@ -1128,12 +1326,20 @@ internal sealed class LyricsCanvas : Control
         };
 
         float top = centerY - layout.TotalHeight / 2f;
-        float width = Math.Max(1f, Width - 2f * SidePadding);
+        float width = Math.Max(1f, LyricsArea.Width - 2f * SidePadding);
         for (int i = 0; i < layout.Rows.Count; i++)
         {
             var row = layout.Rows[i];
-            var rect = new RectangleF(SidePadding, top + i * layout.RowHeight,
-                width, layout.RowHeight);
+            var rect = new RectangleF(LyricsArea.Left + SidePadding,
+                top + i * layout.RowHeight, width, layout.RowHeight);
+            if (_display.DepthBlur && emphasis < 0.5f)
+            {
+                var shadowRect = new RectangleF(rect.X + 1.5f, rect.Y + 1.5f,
+                    rect.Width, rect.Height);
+                using var shadow = new SolidBrush(Color.FromArgb(
+                    (int)(45f * opacity), 172, 190, 216));
+                g.DrawString(row.Text, displayFont, shadow, shadowRect, format);
+            }
             g.DrawString(row.Text, displayFont, normalBrush, rect, format);
 
             if (!playedCharacters.HasValue) continue;
@@ -1165,7 +1371,8 @@ internal sealed class KaraokeDisplay : Form
     private readonly LyricsCanvas _canvas;
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 55 };
 
-    public KaraokeDisplay(Screen screen, Func<LyricFrame> frame, AlbumArtworkState artwork)
+    public KaraokeDisplay(Screen screen, Func<LyricFrame> frame, AlbumArtworkState artwork,
+        MelismaDisplaySettings display)
     {
         Text = "Melisma Karaoke · TV display";
         FormBorderStyle = FormBorderStyle.None;
@@ -1173,7 +1380,7 @@ internal sealed class KaraokeDisplay : Form
         Bounds = screen.Bounds;
         BackColor = Color.Black;
         KeyPreview = true;
-        _canvas = new LyricsCanvas(frame, artwork) { Dock = DockStyle.Fill };
+        _canvas = new LyricsCanvas(frame, artwork, display) { Dock = DockStyle.Fill };
         Controls.Add(_canvas);
         KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) Close(); };
         _timer.Tick += (_, _) => _canvas.Invalidate();
