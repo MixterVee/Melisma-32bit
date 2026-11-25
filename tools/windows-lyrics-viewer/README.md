@@ -1,4 +1,53 @@
-# Melisma Universal — Windows v0.5.2 (test build)
+# Melisma Universal — Windows v0.5.3 (test build)
+
+## New: full-screen fluid Living idle screensaver
+
+The previous idle feature changed only the background and left Cinema artwork,
+song metadata and lyrics on top. v0.5.3 changes this deliberately:
+**after 10–15 seconds without music, Living takes over the entire lyrics canvas**,
+covering the Cinema panel, song information and lyrics. It is a screensaver, not
+just another layer behind the lyrics.
+
+- A new low-resolution organic, domain-warped colour-cloud renderer creates
+  gently evolving liquid/smoke-like shapes using colours partially drawn from
+  album art. It does **not** move a recognisable blurred cover image around.
+- **Full-screen Living when idle**: on by default, under Display settings →
+  Background. Applies to both laptop lyrics preview and the clean TV display.
+  Normal Windows controller buttons remain accessible while idle.
+- **Idle Living delay**: 10–15 seconds, default 12. Brief pauses and gaps
+  between tracks never activate the screensaver.
+- Screensaver enters over about **1.5 seconds**.
+- **Return from idle fade**: 2–12 seconds, default **6 seconds**. When music
+  starts again, the screensaver slowly becomes transparent, revealing the
+  current artwork and lyrics at their **actual live playback position**.
+- Foobar2000's read-only bridge and lyric timing continue to update while
+  the screensaver covers the display; no seeking, restarting or freezing.
+- Your saved Lyrics/Cinema layout, normal background style, background fade,
+  independent Cinema cover fade and per-song lyric delay are preserved.
+- The *normal* Living background also uses the new abstract fluid renderer;
+  Living (classic) remains the older moving-gradient approximation.
+- If there is no cover image, the fluid screensaver uses a calm fallback
+  blue/purple/teal colour palette.
+
+### First test
+
+1. Download the v0.5.3 Windows artifact, extract into its own folder and keep
+   v0.5.2 as a backup.
+2. Select **View → Cinema**, set the normal **Background → Style** to Black
+   (for an obvious contrast).
+3. Enable **Full-screen Living when idle**, set **Idle Living delay = 12 seconds**,
+   and **Return from idle fade = 6.0 seconds**.
+4. Play a song and pause for only 5 seconds: the normal display should stay.
+5. Keep paused for more than 12 seconds: abstract fluid Living should fill the
+   *entire canvas*, hiding even the sharp album-cover panel and lyric text.
+6. Resume foobar2000: over about 6 seconds, the full Cinema display and lyrics
+   should gradually reappear, synchronized to the correct point in the song.
+7. Stop music or wait between tracks for 12+ seconds: Living returns.
+   Switch tracks within 12 seconds: no screensaver.
+8. Turn off the idle option to disable the screensaver. Restart the app
+   to confirm settings and song-specific lyric corrections persist.
+
+## Retained from v0.5.2
 
 ## New: Living background after sustained inactivity
 
