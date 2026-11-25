@@ -33,6 +33,8 @@ internal sealed class LyricsController : Form
     private readonly NativeTimelineReader _bridge = new();
     private readonly SongOffsetStore _offsets = new();
     private readonly AlbumArtworkState _artwork = new();
+    private readonly MelismaDisplaySettings _display = MelismaDisplaySettings.Load();
+    private MelismaDisplaySettingsForm? _settingsWindow;
     private readonly System.Windows.Forms.Timer _screenTimer = new() { Interval = 55 };
     private readonly System.Windows.Forms.Timer _mediaTimer = new() { Interval = 1200 };
     private readonly Label _trackLabel = Label(18, Color.White, true);
@@ -63,7 +65,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows Lyrics Preview v0.4.2";
+        Text = "Melisma Universal · Melisma Universal Windows v0.5";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -127,51 +129,26 @@ internal sealed class LyricsController : Form
         toolbar.Controls.Add(_secondScreenButton);
         toolbarArea.Controls.Add(toolbar, 0, 0);
 
-        var artControls = new FlowLayoutPanel
+        var extraControls = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill, WrapContents = false, AutoScroll = true,
             FlowDirection = FlowDirection.LeftToRight
         };
-        var artEnabled = new CheckBox
-        {
-            Text = "Album art background", AutoSize = true,
-            Checked = _artwork.Enabled, ForeColor = Color.White,
-            Margin = new Padding(0, 11, 12, 0)
-        };
-        artEnabled.CheckedChanged += (_, _) =>
-        {
-            _artwork.Enabled = artEnabled.Checked;
-            _artwork.SaveOptions();
-            _preview.Invalidate();
-            _projection?.Redraw();
-        };
-        artControls.Controls.Add(artEnabled);
-
-        var fadeLabel = Label(9.5f, Color.FromArgb(175, 188, 204));
-        fadeLabel.Text = "Fade (seconds):";
-        fadeLabel.AutoSize = true;
-        fadeLabel.Margin = new Padding(0, 11, 7, 0);
-        artControls.Controls.Add(fadeLabel);
-        var fadeSeconds = new NumericUpDown
-        {
-            Minimum = 1, Maximum = 10, Value = _artwork.FadeSeconds,
-            Width = 52, Height = 32, Margin = new Padding(0, 5, 12, 0),
-            Font = new Font("Segoe UI", 10)
-        };
-        fadeSeconds.ValueChanged += (_, _) =>
-        {
-            _artwork.FadeSeconds = (int)fadeSeconds.Value;
-            _artwork.SaveOptions();
-        };
-        artControls.Controls.Add(fadeSeconds);
-
-        var openCover = Button("Open cover image", 152);
+        var settingsButton = Button("Display settings…", 164);
+        settingsButton.Click += OpenDisplaySettings;
+        extraControls.Controls.Add(settingsButton);
+        var openCover = Button("Open cover image", 162);
         openCover.Click += OpenCoverImage;
-        artControls.Controls.Add(openCover);
-        toolbarArea.Controls.Add(artControls, 0, 1);
+        extraControls.Controls.Add(openCover);
+        var note = Label(9.5f, Color.FromArgb(175, 188, 204));
+        note.Text = "Lyrics / Cinema · Background · Lyrics display";
+        note.Width = 400;
+        note.Height = 37;
+        extraControls.Controls.Add(note);
+        toolbarArea.Controls.Add(extraControls, 0, 1);
         grid.Controls.Add(toolbarArea, 0, 2);
 
-        _preview = new LyricsCanvas(CurrentFrame, _artwork, controllerPreview: true) { Dock = DockStyle.Fill };
+        _preview = new LyricsCanvas(CurrentFrame, _artwork, _display, controllerPreview: true) { Dock = DockStyle.Fill };
         grid.Controls.Add(_preview, 0, 3);
 
         // Keep the footer quiet: it only changes when the selected song or
@@ -208,6 +185,7 @@ internal sealed class LyricsController : Form
             _searchCancellation?.Cancel();
             _searchCancellation?.Dispose();
             _projection?.Close();
+            _settingsWindow?.Close();
             _artwork.Dispose();
         };
     }
@@ -348,6 +326,22 @@ internal sealed class LyricsController : Form
         }
     }
 
+    private void OpenDisplaySettings(object? sender, EventArgs e)
+    {
+        if (_settingsWindow != null && !_settingsWindow.IsDisposed)
+        {
+            _settingsWindow.Activate();
+            return;
+        }
+        _settingsWindow = new MelismaDisplaySettingsForm(_display, _artwork, () =>
+        {
+            _preview.Invalidate();
+            _projection?.Redraw();
+        });
+        _settingsWindow.FormClosed += (_, _) => _settingsWindow = null;
+        _settingsWindow.Show(this);
+    }
+
     private void ChangeOffset(int delta)
     {
         _offsetMs = Math.Clamp(_offsetMs + delta, -20000, 20000);
@@ -399,7 +393,7 @@ internal sealed class LyricsController : Form
                 "Melisma — second display", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
-        _projection = new KaraokeDisplay(screen, CurrentFrame, _artwork);
+        _projection = new KaraokeDisplay(screen, CurrentFrame, _artwork, _display);
         _projection.FormClosed += (_, _) =>
         {
             _projection = null;
@@ -673,7 +667,7 @@ internal static class LrcParser
     }
 }
 
-internal sealed record AlbumArtOptions(bool Enabled, int FadeSeconds);
+internal sealed record AlbumArtOptions(bool Enabled, float FadeSeconds);
 
 internal sealed class AlbumArtworkState : IDisposable
 {
@@ -685,12 +679,14 @@ internal sealed class AlbumArtworkState : IDisposable
     private Bitmap? _current;
     private long _transitionTick = Environment.TickCount64;
     public bool Enabled { get; set; } = true;
-    public int FadeSeconds { get; set; } = 4;
+    public float FadeSeconds { get; set; } = 4;
     public Image? Previous => _previous;
     public Image? Current => _current;
-    public float Progress => Math.Clamp(
-        (Environment.TickCount64 - _transitionTick) / (FadeSeconds * 1000f),
-        0f, 1f);
+    public float Progress => ProgressFor(FadeSeconds);
+    public float PanelProgress => ProgressFor(3.4f);
+    private float ProgressFor(float seconds) => Math.Clamp(
+        (Environment.TickCount64 - _transitionTick) /
+            (Math.Max(1f, seconds) * 1000f), 0f, 1f);
 
     public AlbumArtworkState()
     {
