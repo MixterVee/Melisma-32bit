@@ -143,6 +143,17 @@ internal static class ParserSmokeTests
         Check(fallbackQrc[0].Text.Contains("world"),
             "Malformed QQ QRC still reconstructs lyric text");
 
+        Check(PlaybackClockHealth.Fresh(10000, 9900),
+            "Fresh Foobar bridge snapshot accepted");
+        Check(PlaybackClockHealth.Fresh(10000, 8700),
+            "Bridge snapshot within normal publication tolerance accepted");
+        Check(!PlaybackClockHealth.Fresh(10000, 7000),
+            "Stale bridge snapshot rejected instead of freezing lyrics");
+        Check(!PlaybackClockHealth.Fresh(10000, 0),
+            "Missing Foobar bridge timestamp rejected");
+        Check(!PlaybackClockHealth.Fresh(10000, 10500),
+            "Invalid future bridge timestamp rejected");
+
         Console.WriteLine($"PASS: {_passed} lyric parser checks.");
     }
 }

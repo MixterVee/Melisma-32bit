@@ -1,4 +1,61 @@
-# Melisma Universal — Windows v0.6.2 (test build)
+# Melisma Universal — Windows v0.6.3 (test build)
+
+## New: playback-clock diagnostics and stale bridge recovery
+
+The Windows viewer receives the song name, artist and album from Windows
+Global System Media Transport Controls, but it uses the optional native
+**Melisma Foobar2000 Bridge** to get the playback position. These are
+different interfaces. The title and word-timed lyrics can load even if
+the playback clock is unavailable. In that case the lyrics do not advance.
+
+- The bottom status line now displays a **live playback position**, duration,
+  playback state, and clock origin (Foobar bridge or Windows media timeline).
+  If no usable clock is available, the warning is explicit.
+- Click **Source details…** to see **PLAYBACK TIMING (live)**, including
+  the clock source, current position, state, native shared-memory bridge
+  freshness, Windows timeline availability and active lyric index.
+  It still includes all lyrics-provider diagnostics below.
+- The viewer detects a **stale native bridge snapshot** after 1.8 seconds.
+  A stale memory-mapped view is released rather than being mistaken for a
+  live, moving playback position. This permits later bridge reconnection.
+- When the native bridge is missing or stale, the viewer can use the
+  Windows media session's native timestamped playback position **if it is
+  actually provided**. Foobar2000 configurations that publish metadata
+  but no usable Windows timeline cannot be synchronized automatically.
+- If *neither* clock works, the viewer shows a warning rather than making
+  the word-synced data appear broken. It does not invent elapsed time from
+  the song title or silently assume playback started at zero.
+- Playback state from Windows still prevents the Living idle screensaver
+  from covering lyrics merely because the native bridge is disconnected.
+- Automated tests verify fresh, stale, missing and invalid native sample
+  timestamps. All prior lyric provider and Cinema/Living features remain.
+
+### First test: verify the moving clock
+
+1. Keep v0.6.2 as a backup, extract v0.6.3 into a separate folder, and
+   start foobar2000 and Melisma.
+2. Play **Blinding Lights — The Weeknd** and watch the bottom status line.
+   The counter **must advance**. Word-synced lyrics cannot work until it does.
+3. If it says **Playback position UNAVAILABLE**, click **Source details…**.
+   The top section identifies whether the Foobar bridge is missing, stale,
+   or whether the Windows media session has a usable timeline.
+4. If the direct bridge is missing or stale, check **Foobar2000 → File →
+   Preferences → Components** for **Melisma Foobar2000 Bridge**. Restart
+   foobar2000 to reinitialize the component if necessary.
+5. Confirm pause stops the counter, resume continues, seek jumps to the
+   selected position, and cyan word highlighting tracks the counter.
+6. Restart the viewer while music plays. Both the bridge clock and word
+   timing should reconnect without requiring a lyrics provider lookup.
+7. Test Cinema + second monitor and Living idle fade. Previous source
+   selection, background, transitions and timing offsets should persist.
+
+### Limitation
+
+Windows cannot calculate a reliable exact playback position if foobar2000
+does not expose one. In that case the native Foobar2000 Bridge component is
+required; selecting a word-timed lyric provider alone does not provide a clock.
+
+## Retained from v0.6.2
 
 ## Fix: follow the working Android TV Melisma lyrics pipeline
 
