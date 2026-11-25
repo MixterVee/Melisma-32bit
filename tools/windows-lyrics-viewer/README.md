@@ -1,4 +1,80 @@
-# Melisma Universal — Windows v0.6.4 (test build)
+# Melisma Universal — Windows v0.6.5 (test build)
+
+## Improvements: missing cover art, readable controls and earlier word timing
+
+This version builds on the working v0.6.4. No changes were made to its
+Foobar2000 playback clock, TTML word-fill renderer, LRCLIB intro merge,
+Cinema layout, full-screen Living screensaver or saved per-song timing
+offsets.
+
+### 1. Automatic album artwork fallback
+
+- First use artwork published by the Foobar2000 Windows media session.
+- If the media session exposes metadata but **no thumbnail**, optionally
+  search **Apple's public iTunes catalog** for a closely matching
+  title/artist/album, with a duration check when available. Download the
+  matched album cover at up to 600px and cache it locally for 30 days.
+- **Display settings → Background → Find artwork when player supplies none**
+  is on by default and can be disabled. Turning it off avoids catalog
+  lookups for future tracks.
+- A catalog cover is only an approximate substitute for the local MP3's
+  *actual embedded image*. To select exactly the right image for a song,
+  use the existing **Cover…** button to import a local file.
+- Source details now shows whether the artwork came from the player, the
+  catalog fallback, or was selected manually.
+- Album lookup errors cannot affect synchronized lyrics or playback.
+  Old album-image fade settings remain intact.
+
+### 2. Better lyric-source coverage with real NetEase YRC words
+
+- Adds **NetEase Cloud Music** in parallel with lrc.red, AMLL TTML DB,
+  Better Lyrics and LRCLIB, following the upstream Android Melisma provider.
+- Uses Android's title / primary artist / duration matching and the public
+  search and song/lyric API, attempting its *actual YRC or klyric word-
+  timed* track. Every syllable uses timestamps supplied by the source.
+- If NetEase supplies genuine *earlier* word-timed vocals than the other
+  sources, prefer those instead of a word-timed document missing a verse.
+- If NetEase is unavailable, blocked or has no word timestamps, it is simply
+  an additional "no result" in Sources diagnostics. Existing lrc.red +
+  LRCLIB intro playback remains the fallback. No predicted timestamps.
+- NetEase's public endpoints may rate-limit or block anonymous connections;
+  do not interpret a rejected request as a playback problem.
+
+### 3. Text and button fit
+
+- Shortens the overlong "35 lines, ..." controller notice to
+  "35 lines · Opening verse line-timed, later words synchronized".
+- Renames controller buttons to compact **Find lyrics**, **Open lyrics**,
+  **Second screen**, **Display…**, **Cover…** and **Sources…** to prevent
+  truncation at 150% DPI. The available actions remain the same.
+
+### First test
+
+1. Keep v0.6.4 as a backup and extract v0.6.5 to its own folder.
+2. Play **Blinding Lights — The Weeknd**. If the Windows media session still
+   provides no thumbnail, the album art should appear using the optional
+   catalog fallback. Inspect **Sources…** for "Artwork: ...".
+3. Confirm the main status notice and buttons are readable without clipping
+   on your normal laptop screen.
+4. Play Blinding Lights from the start. Intro vocals should still appear
+   line-timed; words become timed from around 1:01 unless NetEase returns a
+   genuinely earlier word-timed version of the same recording.
+5. Inspect **Sources…** for the NetEase result (match, no match, timeout, or
+   error) and the first cue of each other provider.
+6. Confirm the cyan word fill follows foobar2000 exactly after 1:00.
+   Pause, resume and seek. Check the TV/second-screen Cinema layout,
+   full-screen Living idle fade and saved ±100ms offsets.
+
+### Source notes
+
+The public iTunes Search API is documented by Apple:
+https://performance-partners.apple.com/search-api
+
+NetEase's search/YRC logic is ported from upstream Android Melisma:
+https://github.com/MelismaApp/melisma/blob/v2.11.0/app/src/main/java/com/melisma/app/lyrics/provider/NeteaseProvider.kt
+https://github.com/MelismaApp/melisma/blob/v2.11.0/app/src/main/java/com/melisma/app/lyrics/parse/YrcParser.kt
+
+## Retained from v0.6.4
 
 ## Fix: word-timed songs with missing opening verses
 
