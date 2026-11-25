@@ -85,7 +85,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.6";
+        Text = "Melisma Universal · Windows v0.6.7";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -663,12 +663,90 @@ internal sealed class LyricsController : Form
         _lookupReport = $"Song: {title}\nArtist: {artist}\nAlbum: {album}\n" +
             $"Foobar bridge duration: {duration / 1000d:F1}s\n" +
             "Providers: checking concurrently…";
+        long searchStartedTick = Environment.TickCount64;
+        long? firstDisplayMs = null;
+        string? shownSource = null;
+        string? shownName = null;
+        int shownCount = -1;
+
+        bool CurrentSearch() =>
+            !token.IsCancellationRequested && !IsDisposed &&
+            searchFor == _loadedFor;
+
+        void Present(LyricsSourceOrchestrator.Lookup result, bool complete)
+        {
+            if (!CurrentSearch()) return;
+            var best = result.Best;
+            long elapsed = Math.Max(0, Environment.TickCount64 - searchStartedTick);
+            bool hasLines = best is { Lines: { Count: > 0 } };
+            bool newResult = hasLines && (
+                shownSource != best!.Id || shownName != best.Name ||
+                shownCount != best.Total || _lines.Count == 0);
+
+            if (newResult)
+            {
+                // The first accessible provider can begin displaying lyrics
+                // immediately. A later provider may upgrade line timing to
+                // real word timing, or fill a missing first verse.
+                _lines.Clear();
+                _lines.AddRange(best!.Lines!);
+                shownSource = best.Id;
+                shownName = best.Name;
+                shownCount = best.Total;
+                firstDisplayMs ??= elapsed;
+                _preview.Invalidate();
+                _projection?.Redraw();
+            }
+
+            _lookupReport = $"Foobar2000 metadata:\n" +
+                $"Title: {title}\nArtist: {artist}\nAlbum: {album}\n" +
+                $"Duration: {duration / 1000d:F1} seconds\n\n" +
+                $"Lyric search elapsed: {elapsed / 1000d:F1} seconds\n" +
+                $"First playable lyrics displayed after: " +
+                (firstDisplayMs.HasValue ? $"{firstDisplayMs.Value / 1000d:F1} seconds"
+                                         : "not available yet") + "\n" +
+                $"Providers completed: {result.All.Count}/5\n\n" +
+                "Sources checked:\n" + result.Report +
+                "\n\nSelected: " + (best?.Name ?? "No timed lyrics yet") +
+                "\n\nOnly genuine source timestamps are used.";
+
+            if (!hasLines)
+            {
+                if (complete)
+                {
+                    _source = "No synchronized lyrics found";
+                    _statusLabel.Text = "No timed lyrics found · Sources…";
+                    _notice = "No timed lyrics from these sources. See Sources…";
+                }
+                return;
+            }
+            if (newResult || complete)
+            {
+                bool introAdded = best!.Name.Contains("+ LRCLIB intro",
+                    StringComparison.Ordinal);
+                _source = best.Id == "lrcred" ? (introAdded
+                    ? "lrc.red + LRCLIB intro" : "lrc.red") : best.Name;
+                string timing = introAdded
+                    ? "Word-synced + line-timed intro"
+                    : best.WordTimed ? "Word-synced" : "Line-synced";
+                _statusLabel.Text = $"{timing} · {best.Name}" +
+                    (complete ? "" : " · refining");
+                _notice = !complete
+                    ? $"{best.Total} synchronized lines ready · refining sources"
+                    : introAdded
+                        ? $"{best.Total} lines · Opening line-timed, later word-timed"
+                        : best.WordTimed
+                            ? $"{best.Timed} word-timed lines · Pause or seek to test"
+                            : $"{best.Total} line-timed lines · Sources… for details";
+            }
+        }
+
         try
         {
-            // Android Melisma's LyricsRepository asks enabled providers in
-            // parallel, chooses genuine word timing first, and retains failure
-            // reasons per source. Never make a volunteer provider's timeout
-            // prevent an unrelated provider's successful answer.
+            // Stream the first valid provider result instead of waiting for
+            // every service to finish or hit its 12-second timeout.
+            // This fixes the 15–20s delayed lyric appearance on track change
+            // while still allowing an improved word-timed source to arrive.
             var lookup = await LyricsSourceOrchestrator.QueryAsync(Client,
                 title, artist, album, duration,
                 async ct =>
@@ -676,41 +754,8 @@ internal sealed class LyricsController : Form
                     var synced = await Lrclib.FindAsync(
                         title, artist, album, duration, ct);
                     return synced == null ? null : LrcParser.Parse(synced);
-                }, token);
-            if (token.IsCancellationRequested || IsDisposed ||
-                searchFor != _loadedFor) return;
-
-            _lookupReport = $"Foobar2000 metadata:\n" +
-                $"Title: {title}\nArtist: {artist}\nAlbum: {album}\n" +
-                $"Duration: {duration / 1000d:F1} seconds\n\n" +
-                "Sources checked (parallel, 12s each):\n" + lookup.Report +
-                "\n\nSelected: " + (lookup.Best?.Name ?? "No timed lyrics available") +
-                "\n\nOnly genuine source timestamps are used. " +
-                "A provider can return no match or be unreachable.";
-            if (lookup.Best is not { Lines: { Count: > 0 } })
-            {
-                _source = "No synchronized lyrics found";
-                _statusLabel.Text = "No timed lyrics found · Open Source details…";
-                _notice = "No lyrics available from these sources. See Source details…";
-                return;
-            }
-
-            var best = lookup.Best;
-            _lines.Clear();
-            _lines.AddRange(best.Lines);
-            bool introAdded = best.Name.Contains("+ LRCLIB intro",
-                StringComparison.Ordinal);
-            _source = best.Id == "lrcred" ? (introAdded
-                ? "lrc.red + LRCLIB intro" : "lrc.red") : best.Name;
-            string timing = introAdded
-                ? "Word-synced + line-timed intro"
-                : best.WordTimed ? "Word-synced" : "Line-synced";
-            _statusLabel.Text = $"{timing} · {best.Name}";
-            _notice = introAdded
-                ? $"{best.Total} lines · Opening verse line-timed, later words synchronized"
-                : best.WordTimed
-                    ? $"{best.Timed} word-timed lines · Pause or seek to test"
-                    : $"{best.Total} line-timed lines · Sources… for details";
+                }, token, partial => Present(partial, complete: false));
+            Present(lookup, complete: true);
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
@@ -730,7 +775,7 @@ internal sealed class LyricsController : Form
     {
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd(
-            "MelismaWindows/0.6.4 (Windows; https://github.com/MixterVee/Melisma-32bit)");
+            "MelismaWindows/0.6.7 (Windows; https://github.com/MixterVee/Melisma-32bit)");
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         return client;
     }
