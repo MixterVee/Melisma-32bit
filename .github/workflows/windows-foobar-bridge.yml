@@ -94,7 +94,7 @@ jobs:
       - name: Upload installable Windows test kit
         uses: actions/upload-artifact@v4
         with:
-          name: Melisma-Foobar-Bridge-v0.1-Windows-x64
+          name: Melisma-Foobar-Bridge-v0.2-Windows-x64
           path: |
             kit/foo_melisma_bridge.fb2k-component
             kit/MelismaMediaDetector.exe
