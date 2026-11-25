@@ -18,6 +18,7 @@
     <Compile Include="../LyricWordSpacing.cs" Link="LyricWordSpacing.cs" />
     <Compile Include="../ActiveWordPulse.cs" Link="ActiveWordPulse.cs" />
     <Compile Include="../LyricsInterlude.cs" Link="LyricsInterlude.cs" />
+    <Compile Include="../LyricPreviewMotion.cs" Link="LyricPreviewMotion.cs" />
     <Compile Include="../CoverFade.cs" Link="CoverFade.cs" />
     <Compile Include="InterludeAndArtworkTests.cs" />
     <Compile Include="ActiveWordPulseTests.cs" />
