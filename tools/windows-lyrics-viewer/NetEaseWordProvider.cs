@@ -137,6 +137,12 @@ internal static class NeteaseYrcParser
     private static readonly Regex Word =
         new(@"\((?<s>\d+),(?<d>\d+),-?\d+\)(?<text>[^(]*)",
             RegexOptions.Compiled);
+    // NetEase sometimes publishes timed credits at 0s, 1s and 2s before
+    // the first actual vocal. Those are metadata, not karaoke cues.
+    private static readonly Regex Credit =
+        new(@"^(?:制作人|作词|作曲|编曲|填词|录音|混音|母带|监制|和声|词|曲|Producer|Produced\s+by|Written\s+by|Composed\s+by|Arranged\s+by|Lyrics?\s+by|Lyricist|Composer|Mix(?:ed)?\s+by|Mastered\s+by)\s*[:：]",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase |
+            RegexOptions.CultureInvariant);
 
     public static List<LrcLine> Parse(string raw)
     {
@@ -183,9 +189,11 @@ internal static class NeteaseYrcParser
                 previousEndedWithSpace = rawWord.EndsWith(' ');
             }
             if (words.Count == 0 || text.Length == 0) continue;
+            string lyricText = text.ToString();
+            if (Credit.IsMatch(lyricText)) continue;
             long first = Math.Min(lineStart, words[0].AtMs);
             if (result.Count > 0 && first < result[^1].AtMs) continue;
-            result.Add(new LrcLine(first, text.ToString(),
+            result.Add(new LrcLine(first, lyricText,
                 words.Count > 1 ? words : null));
         }
         return result;
