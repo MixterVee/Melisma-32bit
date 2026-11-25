@@ -34,6 +34,7 @@ internal sealed record LyricFrame(
 internal sealed class LyricsController : Form
 {
     private readonly NativeTimelineReader _bridge = new();
+    private readonly NativeTrackMetadataReader _nativeTags = new();
     private readonly SongOffsetStore _offsets = new();
     private readonly LyricsResultCache _lyricCache = new();
     private readonly AlbumArtworkState _artwork = new();
@@ -72,6 +73,7 @@ internal sealed class LyricsController : Form
     private bool _clockUsable;
     private long _lastClockLabelTick;
     private ulong _lastFoobarTrackGeneration;
+    private ulong _lastLoadedGeneration;
 
     // Secondary Windows media-session timeline, usable when Foobar's
     // native bridge is absent. Unlike track metadata, this may not be
@@ -89,7 +91,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.10";
+        Text = "Melisma Universal · Windows v0.6.11";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -236,6 +238,7 @@ internal sealed class LyricsController : Form
             _screenTimer.Stop();
             _mediaTimer.Stop();
             _bridge.Dispose();
+            _nativeTags.Dispose();
             _searchCancellation?.Cancel();
             _searchCancellation?.Dispose();
             _projection?.Close();
@@ -287,14 +290,13 @@ internal sealed class LyricsController : Form
                 // Android reacts to track-change events, not a fixed media
                 // poll. Foobar's existing bridge publishes that event as a
                 // generation change, so ask GSMTC for metadata immediately.
-                if (native.Generation != _lastFoobarTrackGeneration)
-                {
-                    _lastFoobarTrackGeneration = native.Generation;
-                    if (_manager != null && !_mediaBusy) _ = PollMediaAsync();
-                }
+                bool newTrack = native.Generation != _lastFoobarTrackGeneration;
+                _lastFoobarTrackGeneration = native.Generation;
                 _clockSource = "Foobar bridge";
                 _playerState = native.State;
                 _durationMs = native.DurationMs > 0 ? (long)native.DurationMs : 0;
+                // Duration must be updated before metadata triggers a search.
+                if (newTrack && !_mediaBusy) _ = PollMediaAsync();
                 long age = Math.Clamp(sampleAge, 0L, 350L);
                 _positionMs = (long)native.PositionMs +
                     (native.State == 1 ? age : 0);
@@ -377,12 +379,16 @@ internal sealed class LyricsController : Form
             : _bridgeWasStale
                 ? $"STALE — latest sample age {_bridgeAgeMs} ms"
                 : "Not connected / unreadable";
+        string nativeTags = _nativeTags.TryRead(out var tags)
+            ? $"Available · Title: '{tags.Title}' · Artist: '{tags.Artist}' · Album: '{tags.Album}'"
+            : "Not available (Foobar bridge v0.2 required)";
         return "PLAYBACK TIMING (live)\n" +
             $"Playback status: {StateText()}\n" +
             $"Clock: {_clockSource}\n" +
             $"Current position: {(_clockUsable ? Clock(_positionMs) : "UNAVAILABLE")}\n" +
             $"Duration: {(_clockUsable ? Clock(_durationMs) : "UNAVAILABLE")}\n" +
             $"Native Foobar bridge: {native}\n" +
+            $"Foobar native song tags: {nativeTags}\n" +
             $"Windows media timeline: {(_windowsTimelineValid ? "Available" : "Not published")}\n" +
             $"Active lyric: {active}\n" +
             $"Artwork: {_artworkStatus}\n\n" +
@@ -400,34 +406,61 @@ internal sealed class LyricsController : Form
         {
             var session = _manager.GetSessions().FirstOrDefault(s =>
                 s.SourceAppUserModelId.Contains("foobar", StringComparison.OrdinalIgnoreCase));
-            if (session == null)
+            if (session != null)
+            {
+                try { CaptureWindowsTimeline(session); }
+                catch (Exception ex) when (ex is InvalidOperationException or
+                            System.Runtime.InteropServices.COMException)
+                {
+                    _windowsTimelineValid = false;
+                }
+            }
+            else
             {
                 _windowsState = 0;
                 _windowsTimelineValid = false;
-                _notice = "Waiting for Foobar2000. Start playing a song.";
+            }
+            var props = session == null ? null : await session.TryGetMediaPropertiesAsync();
+
+            // The native bridge identifies the actual Foobar track.
+            // Windows GSMTC can publish an incomplete artist/album or lag
+            // behind the Foobar track-change generation.
+            bool nativeCurrent = _nativeTags.TryRead(out var tags) &&
+                tags.Generation == _lastFoobarTrackGeneration &&
+                !string.IsNullOrWhiteSpace(tags.Title);
+            string title = nativeCurrent ? tags.Title : (props?.Title ?? "").Trim();
+            string artist = nativeCurrent && tags.Artist.Length > 0
+                ? tags.Artist : (props?.Artist ?? "").Trim();
+            string album = nativeCurrent && tags.Album.Length > 0
+                ? tags.Album : (props?.AlbumTitle ?? "").Trim();
+            if (title.Length == 0)
+            {
+                _notice = "Waiting for Foobar2000 song metadata.";
                 return;
             }
-            try { CaptureWindowsTimeline(session); }
-            catch (Exception ex) when (ex is InvalidOperationException or
-                        System.Runtime.InteropServices.COMException)
-            {
-                _windowsTimelineValid = false;
-            }
-            var props = await session.TryGetMediaPropertiesAsync();
-            if (props == null) return;
-            var title = (props.Title ?? "").Trim();
-            var artist = (props.Artist ?? "").Trim();
-            if (title.Length == 0) return;
-            var album = (props.AlbumTitle ?? "").Trim();
-            if (title == _song && artist == _artist && album == _album) return;
+
+            // Read duration from Foobar directly before constructing the
+            // provider request; zero-duration GSMTC is not authoritative.
+            if (_bridge.TryRead(out var live) && live.DurationMs > 0 &&
+                (!nativeCurrent || live.Generation == tags.Generation))
+                _durationMs = (long)live.DurationMs;
+
+            if (title == _song && artist == _artist && album == _album &&
+                _lastLoadedGeneration == _lastFoobarTrackGeneration) return;
+            _lastLoadedGeneration = _lastFoobarTrackGeneration;
             _song = title; _artist = artist; _album = album;
-            _loadedFor = title + "|" + artist + "|" + album;
+            _loadedFor = title + "|" + artist + "|" + album + "|" + _durationMs;
             // Keep the previous cover displayed until the replacement arrives.
             // Clearing here produced a blank panel followed by a new fade-IN,
             // instead of the selected old-cover-to-new-cover crossfade.
             int artworkRequest = ++_artworkRequestId;
             _artworkStatus = "Looking for artwork";
-            _ = LoadArtworkAsync(props.Thumbnail, title, artist, album,
+            // Keep the crossfade, but never show GSMTC's previous cover
+            // against metadata from the next native Foobar track.
+            var thumbnail = props != null &&
+                string.Equals((props.Title ?? "").Trim(), title,
+                    StringComparison.OrdinalIgnoreCase) ? props.Thumbnail : null;
+            _ = LoadArtworkAsync(thumbnail, title, artist, album,
                 _durationMs, _loadedFor, artworkRequest);
             _trackLabel.Text = title + "  —  " + artist;
             _offsetMs = _offsets.Read(title, artist, album);
@@ -1046,68 +1079,6 @@ internal sealed class SongOffsetStore
     }
 }
 
-internal static class LrcParser
-{
-    private static readonly Regex Timestamp =
-        new(@"\[(?<m>\d{1,3}):(?<s>\d{1,2})(?:\.(?<f>\d{1,3}))?\]",
-            RegexOptions.Compiled | RegexOptions.CultureInvariant);
-    // Enhanced LRC permits optional word timestamps, e.g. <00:12.34>Hello <00:12.78>world.
-    private static readonly Regex WordTimestamp =
-        new(@"<(?<m>\d{1,3}):(?<s>\d{1,2})(?:\.(?<f>\d{1,3}))?>",
-            RegexOptions.Compiled | RegexOptions.CultureInvariant);
-
-    private static long Ms(Match match)
-    {
-        int minute = int.Parse(match.Groups["m"].Value, CultureInfo.InvariantCulture);
-        int second = int.Parse(match.Groups["s"].Value, CultureInfo.InvariantCulture);
-        var frac = match.Groups["f"].Value;
-        int ms = frac.Length == 0 ? 0 :
-            int.Parse(frac.PadRight(3, '0'), CultureInfo.InvariantCulture);
-        return (minute * 60L + second) * 1000 + ms;
-    }
-
-    public static List<LrcLine> Parse(string value)
-    {
-        var entries = new List<LrcLine>();
-        foreach (var line in value.Replace("\r", "").Split('\n'))
-        {
-            var matches = Timestamp.Matches(line);
-            if (matches.Count == 0) continue;
-
-            var rawText = Timestamp.Replace(line, "").Trim();
-            var wordMatches = WordTimestamp.Matches(rawText);
-            string text = WordTimestamp.Replace(rawText, "").Trim();
-            if (text.Length == 0) text = "♪";
-            List<LrcWord>? words = null;
-
-            if (wordMatches.Count > 0)
-            {
-                var parsedWords = new List<LrcWord>();
-                for (int i = 0; i < wordMatches.Count; i++)
-                {
-                    var match = wordMatches[i];
-                    int start = match.Index + match.Length;
-                    int finish = i + 1 < wordMatches.Count
-                        ? wordMatches[i + 1].Index : rawText.Length;
-                    var part = rawText.Substring(start, finish - start);
-                    if (i == 0) part = part.TrimStart();
-                    if (i == wordMatches.Count - 1) part = part.TrimEnd();
-                    if (part.Length > 0)
-                        parsedWords.Add(new LrcWord(Ms(match), part));
-                }
-                // If leading un-timed content exists, retain plain line mode.
-                if (parsedWords.Count > 0 &&
-                    string.Concat(parsedWords.Select(w => w.Text)) == text)
-                    words = parsedWords;
-            }
-
-            foreach (Match m in matches)
-                entries.Add(new LrcLine(Ms(m), text, words));
-        }
-        entries.Sort((a, b) => a.AtMs.CompareTo(b.AtMs));
-        return entries;
-    }
-}
 
 // Restore the controller only, not the borderless second-screen projection.
 // A monitor may be disconnected or its resolution/DPI may have changed since

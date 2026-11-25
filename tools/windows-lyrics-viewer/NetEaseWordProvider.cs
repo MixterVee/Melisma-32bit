@@ -20,13 +20,14 @@ internal static class NetEaseWordProvider
         HttpClient client, string title, string artist, long durationMs,
         CancellationToken cancellation)
     {
-        if (title.Length < 2 || artist.Length < 2) return null;
+        // Android will search by title when the player omits artist tags.
+        // Require duration in that case so another artist's version cannot win.
+        if (title.Length < 2 || (artist.Length < 2 && durationMs <= 0)) return null;
         string primary = AndroidLyricsMatch.SplitArtists(artist).FirstOrDefault() ??
             artist;
         string clean = AndroidLyricsMatch.CleanTitle(title);
         var queries = new[] { title + " " + primary, title,
             clean + " " + primary }.Distinct().ToList();
-
         foreach (string query in queries)
         {
             cancellation.ThrowIfCancellationRequested();
@@ -70,6 +71,13 @@ internal static class NetEaseWordProvider
                 }
                 float score = AndroidLyricsMatch.Score(title, artist, durationMs,
                     candidateTitle, string.Join(", ", artists), candidateDuration);
+                if (artist.Length < 2 &&
+                    (candidateDuration <= 0 ||
+                     Math.Abs(candidateDuration - durationMs) > 5000 ||
+                     !string.Equals(AndroidLyricsMatch.CleanTitle(title),
+                        AndroidLyricsMatch.CleanTitle(candidateTitle),
+                        StringComparison.OrdinalIgnoreCase)))
+                    continue;
                 if (score >= MatchThreshold) matches.Add((id, score));
             }
 
@@ -92,6 +100,20 @@ internal static class NetEaseWordProvider
                 if (WordTimedLyrics.HasWordTimings(parsed) &&
                     BetterLyricsWordProvider.PlausibleDuration(parsed, durationMs))
                     return parsed;
+
+                // Android Melisma accepts the provider's genuine plain LRC
+                // when YRC word timing is missing. The Windows port had been
+                // throwing those real line timestamps away and leaving users
+                // with untimed text instead. Keep the first plausible line-
+                // timed answer immediately; other concurrent providers can upgrade it.
+                string lrc = ExtractLyric(doc.RootElement, "lrc");
+                if (!string.IsNullOrWhiteSpace(lrc))
+                {
+                    var lineTimed = LrcParser.Parse(lrc);
+                    if (lineTimed.Count > 0 &&
+                        BetterLyricsWordProvider.PlausibleDuration(lineTimed, durationMs))
+                        return lineTimed;
+                }
             }
         }
         return null;

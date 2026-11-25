@@ -1,3 +1,32 @@
+# Melisma Universal — Windows v0.6.11 (test build)
+
+## Fix: correct Foobar tags and genuine line-synced lyrics
+
+The two test videos from November 25 show two distinct issues:
+- **International Harvester:** native playback 3:50.748, but lyric search title only (artist blank, duration 0).
+- **Misty Blue — Crystal Shawanda:** fast **plain** lyrics, no real timestamps, so no karaoke highlighting.
+
+The older Foobar bridge reports playback position and duration only. Foobar's Windows media session sometimes omits the artist or album, so providers get an incomplete query. This build pairs with the new read-only **Foobar Bridge v0.2**, which publishes the playing track's actual title, artist, album and generation via an independent versioned shared-memory snapshot; no file paths or audio data are exposed. Playback timing's original v0.1 mapping stays unchanged, so existing clients still work.
+
+- The viewer prefers **direct Foobar metadata** with consistent generation to avoid a stale track name. If the new bridge is absent it retains GSMTC fallback.
+- Foobar's real duration is captured before creating lyric searches; the Windows session's zero duration no longer dictates search identity.
+- NetEase now falls back to a genuine line-timed LRC when a recording has no YRC per-syllable timings, matching Android's implementation; the prior Windows provider silently discarded those usable timestamps.
+- Missing artist tags can still use title plus **strict recording duration** matching, not unguarded title-only guesses.
+- Native and Windows track metadata are shown separately in **Sources…** diagnostics.
+- Keep the v0.6.10 CPU/adaptive refresh fixes, v0.6.9 album crossfade, instrumental dots, and window memory.
+
+### Install / test
+1. Extract Melisma Windows v0.6.11 in a fresh folder.
+2. **Install the Foobar Bridge v0.2** file through Foobar2000 → Preferences → Components → Install, replacing the older bridge; restart Foobar2000. (This is needed for reliable artist and album tags, not merely the new EXE.)
+3. Play **International Harvester** again. In **Sources…**, confirm the native metadata has an artist and nonzero lookup duration, or see if the MP3 itself is untagged. If blank in both places, correct the MP3's artist tag rather than guessing it.
+4. Play **Misty Blue — Crystal Shawanda** again. A genuinely synchronized provider result will animate; if providers offer text only, it is correctly labelled plain and cannot be highlighted from audio without timing data.
+5. Check CPU usage with/without second-screen TV and word highlights. Inspect the provider outcome report before drawing conclusions.
+
+Note: this is an automated build. The SDK bridge must pass Windows compilation and both changes need playback testing in Foobar2000. A source with no timed lyrics cannot be made synchronized by this update.
+
+---
+
+
 # Melisma Universal — Windows v0.6.10 (test build)
 
 ## Android lyric lookup parity + lower CPU use
