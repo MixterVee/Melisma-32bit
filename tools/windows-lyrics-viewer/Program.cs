@@ -66,7 +66,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.5.2";
+        Text = "Melisma Universal · Windows v0.5.3";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -792,9 +792,12 @@ internal sealed class PlaybackIdleBackground
             now - _notPlayingSince >=
             Math.Clamp(settings.IdleLivingDelaySeconds, 10, 15) * 1000L;
         float target = settings.IdleLivingEnabled && idleLongEnough ? 1f : 0f;
-        // The selected background remains untouched. Only the temporary
-        // Living layer fades in/out; 900ms keeps the mode switch subtle.
-        float step = deltaMs / 900f;
+        // A full-screen screensaver fades in over 1.5 seconds. When music
+        // returns, give the lyrics/artwork time to update underneath the
+        // screen before slowly revealing everything again.
+        float transitionMs = target > LivingMix ? 1500f :
+            Math.Clamp(settings.IdleReturnFadeSeconds, 2f, 12f) * 1000f;
+        float step = deltaMs / transitionMs;
         LivingMix = Math.Clamp(LivingMix +
             (target > LivingMix ? step : target < LivingMix ? -step : 0f),
             0f, 1f);
@@ -807,6 +810,7 @@ internal sealed class LyricsCanvas : Control
     private readonly AlbumArtworkState _artwork;
     private readonly MelismaDisplaySettings _display;
     private readonly PlaybackIdleBackground _idleBackground;
+    private readonly FluidLivingRenderer _fluidLiving = new();
     private readonly bool _controllerPreview;
     private readonly List<(Image Source, int Blur, Bitmap Reduced)> _blurCache = new();
     private static readonly Color Highlight = Color.FromArgb(113, 236, 227);
@@ -884,6 +888,7 @@ internal sealed class LyricsCanvas : Control
             DrawMessage(g, "Waiting for synchronized lyrics", Height * 0.55f, 22, Color.White, true);
             DrawMessage(g, frame.Message, Height * 0.67f, 12, Other, false);
             g.Restore(textClip);
+            DrawIdleTakeover(g);
             return;
         }
 
@@ -949,6 +954,18 @@ internal sealed class LyricsCanvas : Control
                 playedCharacters, emphasis, edgeOpacity);
         }
         g.Restore(textClip);
+        DrawIdleTakeover(g);
+    }
+
+    // Drawn LAST, outside the lyric-column clip. This is a screensaver,
+    // not a background overlay: at full opacity it hides the album panel,
+    // song title, lyrics, and every other element of the TV canvas.
+    // The playback clock and underlying lyric layout keep running.
+    private void DrawIdleTakeover(Graphics g)
+    {
+        if (_idleBackground.LivingMix <= 0.001f) return;
+        var art = _artwork.Enabled ? _artwork.Current ?? _artwork.Previous : null;
+        _fluidLiving.Draw(g, ClientRectangle, art, _idleBackground.LivingMix);
     }
 
     private RectangleF LyricsArea
@@ -1007,13 +1024,9 @@ internal sealed class LyricsCanvas : Control
             ? MelismaBackgroundStyle.Living : _display.Background;
         DrawBackgroundStyle(g, selected, 1f);
 
-        // Draw Living as a semi-transparent layer over the currently selected
-        // background. The 900ms blend smoothly fades it in after a sustained
-        // silence and fades it back out when playback resumes. We never alter
-        // the saved background selection, Cinema artwork, or lyric timing.
-        float idleBlend = _idleBackground.LivingMix;
-        if (selected != MelismaBackgroundStyle.Living && idleBlend > 0.001f)
-            DrawBackgroundStyle(g, MelismaBackgroundStyle.Living, idleBlend);
+        // The idle full-screen Living takeover is drawn *after* the Cinema
+        // panel and the lyrics, not here. Changing the saved background is
+        // never necessary.
     }
 
     private void DrawBackgroundStyle(Graphics g, MelismaBackgroundStyle style,
@@ -1021,6 +1034,18 @@ internal sealed class LyricsCanvas : Control
     {
         layerOpacity = Math.Clamp(layerOpacity, 0f, 1f);
         if (layerOpacity <= 0f) return;
+
+        if (style == MelismaBackgroundStyle.Living)
+        {
+            var art = _artwork.Enabled ? _artwork.Current ?? _artwork.Previous : null;
+            _fluidLiving.Draw(g, ClientRectangle, art, layerOpacity);
+            // Darken the regular Living BACKGROUND for readable lyrics.
+            // The idle screensaver is intentionally shown without this scrim.
+            using var veil = new SolidBrush(Color.FromArgb(
+                (int)(112f * layerOpacity), 8, 12, 25));
+            g.FillRectangle(veil, ClientRectangle);
+            return;
+        }
 
         if (style == MelismaBackgroundStyle.Black)
         {
@@ -1282,6 +1307,7 @@ internal sealed class LyricsCanvas : Control
             ClearPlan();
             foreach (var cached in _blurCache) cached.Reduced.Dispose();
             _blurCache.Clear();
+            _fluidLiving.Dispose();
         }
         base.Dispose(disposing);
     }
