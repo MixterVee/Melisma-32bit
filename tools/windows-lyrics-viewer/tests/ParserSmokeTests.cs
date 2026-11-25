@@ -154,6 +154,10 @@ internal static class ParserSmokeTests
         Check(!PlaybackClockHealth.Fresh(10000, 10500),
             "Invalid future bridge timestamp rejected");
 
+        var fallback = LrcParser.Parse("[00:04.20]First sung line\n[00:07.80]Second sung line");
+        Check(fallback.Count == 2 && fallback[0].AtMs == 4200 &&
+              fallback[1].AtMs == 7800 && fallback.All(line => line.Words == null),
+            "Plain LRC from NetEase retains genuine line timestamps (not static text)");
         CoverageTests.Run(Check);
         AdditionalSourceTests.Run(Check);
         WordSpacingTests.Run(Check);
