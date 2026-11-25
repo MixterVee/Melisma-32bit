@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>MelismaLyricsViewer</AssemblyName>
-    <Version>0.5.2</Version>
+    <Version>0.5.3</Version>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <ApplicationTitle>Melisma Universal Lyrics Preview</ApplicationTitle>
   </PropertyGroup>
