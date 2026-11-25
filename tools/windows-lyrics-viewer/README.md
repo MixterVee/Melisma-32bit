@@ -32,8 +32,11 @@ offsets.
 - Uses Android's title / primary artist / duration matching and the public
   search and song/lyric API, attempting its *actual YRC or klyric word-
   timed* track. Every syllable uses timestamps supplied by the source.
-- If NetEase supplies genuine *earlier* word-timed vocals than the other
-  sources, prefer those instead of a word-timed document missing a verse.
+- A live Windows test confirmed **Blinding Lights** has NetEase YRC
+  word-timed vocals beginning at ~23.55 seconds. Its initial time-coded
+  producer/composer credits at 0/1/2 seconds are filtered from the display.
+- NetEase entries with genuine earlier word timings are preferred to
+  otherwise matching songs with incomplete opening verses.
 - If NetEase is unavailable, blocked or has no word timestamps, it is simply
   an additional "no result" in Sources diagnostics. Existing lrc.red +
   LRCLIB intro playback remains the fallback. No predicted timestamps.
@@ -56,9 +59,12 @@ offsets.
    catalog fallback. Inspect **Sources…** for "Artwork: ...".
 3. Confirm the main status notice and buttons are readable without clipping
    on your normal laptop screen.
-4. Play Blinding Lights from the start. Intro vocals should still appear
-   line-timed; words become timed from around 1:01 unless NetEase returns a
-   genuinely earlier word-timed version of the same recording.
+4. Play Blinding Lights from the start. Live testing confirmed NetEase
+   YRC has genuine word-timed vocals beginning around 23.55 seconds.
+   Producer/composer credits at 0/1/2 seconds are now filtered out.
+   If NetEase is accessible on your computer, word-sync should start with
+   the opening vocals; otherwise the established LRCLIB line-timed intro
+   remains the fallback.
 5. Inspect **Sources…** for the NetEase result (match, no match, timeout, or
    error) and the first cue of each other provider.
 6. Confirm the cyan word fill follows foobar2000 exactly after 1:00.
