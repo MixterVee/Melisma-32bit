@@ -71,6 +71,7 @@ internal sealed class LyricsController : Form
     private string _clockSource = "No playback clock";
     private bool _clockUsable;
     private long _lastClockLabelTick;
+    private ulong _lastFoobarTrackGeneration;
 
     // Secondary Windows media-session timeline, usable when Foobar's
     // native bridge is absent. Unlike track metadata, this may not be
@@ -283,6 +284,14 @@ internal sealed class LyricsController : Form
                 _bridgeFound = true;
                 _bridgeWasStale = false;
                 _clockUsable = true;
+                // Android reacts to track-change events, not a fixed media
+                // poll. Foobar's existing bridge publishes that event as a
+                // generation change, so ask GSMTC for metadata immediately.
+                if (native.Generation != _lastFoobarTrackGeneration)
+                {
+                    _lastFoobarTrackGeneration = native.Generation;
+                    if (_manager != null && !_mediaBusy) _ = PollMediaAsync();
+                }
                 _clockSource = "Foobar bridge";
                 _playerState = native.State;
                 _durationMs = native.DurationMs > 0 ? (long)native.DurationMs : 0;
