@@ -1,4 +1,4 @@
-// Melisma Foobar2000 Bridge v0.2
+// Melisma Foobar2000 Bridge v0.3
 // Read-only playback timeline for local Windows karaoke. No audio modifications,
 // playback commands, network listeners, filesystem or registry access.
 // Foobar2000 SDK playback_control requires the main thread. The Win32 timer
@@ -14,6 +14,8 @@
 namespace {
 constexpr wchar_t kMappingName[] = L"Local\\MelismaFoobarBridge_v1";
 constexpr wchar_t kMetaName[] = L"Local\\MelismaFoobarMetadata_v1";
+constexpr wchar_t kArtName[] = L"Local\\MelismaFoobarArtwork_v1";
+constexpr std::uint32_t kMaxArtBytes = 8 * 1024 * 1024;
 constexpr std::uint32_t kMagic = 0x4D454C49; // "MELI"
 constexpr std::uint32_t kVersion = 1;
 
@@ -43,10 +45,42 @@ static_assert(sizeof(MetadataSnapshot) == 792);
 static_assert(offsetof(MetadataSnapshot, artist) == 280);
 HANDLE g_metaMapping = nullptr;
 MetadataSnapshot* g_meta = nullptr;
+// A third optional mapping publishes the exact front cover retrieved by
+// foobar2000's shared now-playing artwork loader. No image files, paths or
+// tag edits are written, and the v0.1/v0.2 mappings are unchanged.
+struct alignas(8) ArtworkSnapshot {
+    std::uint32_t magic, version;  // +0, +4
+    volatile LONG sequence;       // +8: odd while writing
+    LONG state;                   // +12: 0 loading, 1 image, 2 no art
+    std::uint64_t generation;     // +16: match timeline + tag identity
+    std::uint32_t byteCount;      // +24
+    std::uint32_t reserved;       // +28
+    std::uint8_t bytes[kMaxArtBytes]; // +32
+};
+static_assert(offsetof(ArtworkSnapshot, bytes) == 32);
+HANDLE g_artMapping = nullptr;
+ArtworkSnapshot* g_art = nullptr;
+now_playing_album_art_notify* g_artNotify = nullptr;
+
 HANDLE g_mapping = nullptr;
 BridgeSnapshot* g_shared = nullptr;
 UINT_PTR g_timer = 0;
 std::uint64_t g_generation = 0;
+
+void publishArtwork(album_art_data::ptr data, bool finished = true) noexcept {
+    if (g_art == nullptr) return;
+    const std::size_t size = data.is_valid() ? data->size() : 0;
+    const bool usable = finished && size > 0 && size <= kMaxArtBytes;
+    InterlockedIncrement(&g_art->sequence);
+    MemoryBarrier();
+    g_art->generation = g_generation;
+    g_art->byteCount = usable ? static_cast<std::uint32_t>(size) : 0;
+    g_art->state = !finished ? 0 : usable ? 1 : 2;
+    if (usable) std::memcpy(g_art->bytes, data->data(), size);
+    MemoryBarrier();
+    InterlockedIncrement(&g_art->sequence);
+}
+
 
 void writeField(char (&buffer)[256], const pfc::string8& value) noexcept {
     std::memset(buffer, 0, sizeof(buffer));
@@ -124,6 +158,7 @@ public:
         play_callback::flag_on_playback_edited) {}
     void on_playback_new_track(metadb_handle_ptr track) override {
         ++g_generation;
+        publishArtwork(album_art_data::ptr(), false); // do not reuse prior cover
         publishMetadata(track);
         publishFromFoobar();
     }
@@ -187,12 +222,52 @@ public:
                 g_metaMapping = nullptr;
             }
         }
+        g_artMapping = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr,
+            PAGE_READWRITE, 0, sizeof(ArtworkSnapshot), kArtName);
+        if (g_artMapping) {
+            const bool alreadyMapped = GetLastError() == ERROR_ALREADY_EXISTS;
+            if (!alreadyMapped) {
+                g_art = static_cast<ArtworkSnapshot*>(
+                    MapViewOfFile(g_artMapping, FILE_MAP_ALL_ACCESS,
+                        0, 0, sizeof(ArtworkSnapshot)));
+                if (g_art) {
+                    ZeroMemory(g_art, sizeof(ArtworkSnapshot));
+                    g_art->magic = 0x4152544D; // ARTM
+                    g_art->version = 1;
+                    publishArtwork(album_art_data::ptr(), false);
+                }
+            }
+            if (!g_art) {
+                CloseHandle(g_artMapping);
+                g_artMapping = nullptr;
+            }
+        }
+
+        // Use Foobar2000's centralized now-playing album-art loader, which
+        // obtains front cover art for this playback item (including embedded
+        // pictures), rather than GSMTC's potentially stale thumbnail.
+        try {
+            if (g_art) {
+                g_artNotify = now_playing_album_art_notify_manager::get()->add(
+                    [](album_art_data::ptr artwork) { publishArtwork(artwork); });
+            }
+        } catch (...) {
+            console::print("foo_melisma_bridge: native artwork notify unavailable");
+        }
+
         g_trackEvents = new track_events();
         try {
             metadb_handle_ptr playing;
             if (playback_control::get()->get_now_playing(playing)) {
                 ++g_generation;
+                publishArtwork(album_art_data::ptr(), false);
                 publishMetadata(playing);
+                if (g_artNotify) {
+                    try {
+                        auto existing = now_playing_album_art_notify_manager::get()->current();
+                        if (existing.is_valid()) publishArtwork(existing);
+                    } catch (...) {}
+                }
             }
         } catch (...) {}
         // SetTimer(NULL) is delivered on THIS thread's message queue, the
@@ -200,7 +275,7 @@ public:
         g_timer = SetTimer(nullptr, 0, 100, timerProc);
         if (g_timer == 0) console::print("foo_melisma_bridge: timer setup failed");
         publishFromFoobar();
-        console::print("foo_melisma_bridge: read-only timing and track tags ready");
+        console::print("foo_melisma_bridge: read-only timing, tags and native artwork ready");
     }
     void on_quit() override {
         if (g_timer) { KillTimer(nullptr, g_timer); g_timer = 0; }
@@ -208,6 +283,13 @@ public:
         g_trackEvents = nullptr;
         if (g_shared) { UnmapViewOfFile(g_shared); g_shared = nullptr; }
         if (g_mapping) { CloseHandle(g_mapping); g_mapping = nullptr; }
+        if (g_artNotify) {
+            try { now_playing_album_art_notify_manager::get()->remove(g_artNotify); }
+            catch (...) {}
+            g_artNotify = nullptr;
+        }
+        if (g_art) { UnmapViewOfFile(g_art); g_art = nullptr; }
+        if (g_artMapping) { CloseHandle(g_artMapping); g_artMapping = nullptr; }
         if (g_meta) { UnmapViewOfFile(g_meta); g_meta = nullptr; }
         if (g_metaMapping) { CloseHandle(g_metaMapping); g_metaMapping = nullptr; }
     }
@@ -217,8 +299,8 @@ static initquit_factory_t<bridge_lifecycle> g_lifecycle;
 
 DECLARE_COMPONENT_VERSION(
     "Melisma Foobar2000 Bridge",
-    "0.2.0",
+    "0.3.0",
     "Read-only Foobar playback timing and metadata for Melisma Karaoke.\n"
-    "Reports position, duration, title, artist, album and track changes. "
+    "Reports position, duration, tags, front cover, and track changes. "
     "Never modifies audio, playlists or playback.");
 VALIDATE_COMPONENT_FILENAME("foo_melisma_bridge.dll");
