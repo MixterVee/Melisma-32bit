@@ -54,9 +54,8 @@ internal static class LyricsSourceOrchestrator
         {
             return new Answer(id, name, null, "Timed out after 12 seconds", true);
         }
-        catch (Exception ex) when (ex is HttpRequestException or
-                 TaskCanceledException or JsonException or XmlException or
-                 InvalidOperationException or ArgumentException)
+        catch (Exception ex) when (!parent.IsCancellationRequested &&
+                 ex is not OutOfMemoryException and not StackOverflowException)
         {
             return new Answer(id, name, null,
                 $"{ex.GetType().Name}: {ex.Message}", true);
