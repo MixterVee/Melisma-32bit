@@ -1,4 +1,23 @@
-# Melisma Universal — Windows v0.5.3 (test build)
+# Melisma Universal — Windows v0.5.4 (test build)
+
+## New in v0.5.4 — seamless Cinema background
+
+- Removed the semi-transparent dark rectangle behind the artwork/metadata column in **Cinema** layout.
+- Removed the thin divider line between the 42% album-art panel and 58% lyrics region.
+- All background styles (Black, Cover art, Colour, Living, etc.) now flow continuously **across the entire window**, behind both artwork and lyrics.
+- Kept the album cover, title and artist positioned in their column; tiny text-only drop shadows keep titles readable over lighter backgrounds without dimming an entire side of the screen.
+- Preserved the v0.5.3 full-screen fluid Living screensaver, shared in/out fade duration and saved idle settings.
+
+### Test
+
+1. Extract v0.5.4 into a new folder; keep v0.5.3 as backup.
+2. Switch to **View → Cinema** and select **Background → Cover art**, as shown in the report.
+3. Check that there is **no darker vertical bar** behind the cover on either side of the screen and **no vertical dividing line**. The background should be the same brightness across both columns.
+4. Change **Artwork on the** from Left to Right. Confirm the seamless background stays intact.
+5. Check Black and Living backgrounds, and confirm lyrics still stay within their allotted right/left column.
+6. Pause foobar2000 long enough to trigger full-screen Living; resume and verify artwork and lyrics reappear at the correct point using the existing fade setting.
+
+## Retained from v0.5.3
 
 ## New: full-screen fluid Living idle screensaver
 
