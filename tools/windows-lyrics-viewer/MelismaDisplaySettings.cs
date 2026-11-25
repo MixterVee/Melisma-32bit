@@ -46,6 +46,9 @@ internal sealed class MelismaDisplaySettings
     // Exact word timestamps stay authoritative. This affects only the
     // visual fill WITHIN an explicitly timed word (start AND end).
     public bool SmoothWordFill { get; set; } = true;
+    // Match Android TV's gentle scale/lift emphasis on the timed word.
+    // The line position and wrapping remain fixed while a word swells.
+    public bool GrowActiveWord { get; set; } = true;
     public bool MinimalMode { get; set; } = false;
 
     public string FontFamily => Font switch
@@ -193,12 +196,15 @@ internal sealed class MelismaDisplaySettingsForm : Form
             value => settings.SimpleMode = value);
         Toggle(lyrics, "Smooth word fill (real timestamps)", settings.SmoothWordFill,
             value => settings.SmoothWordFill = value);
+        Toggle(lyrics, "Enlarge sung word (Android style)", settings.GrowActiveWord,
+            value => settings.GrowActiveWord = value);
         Toggle(lyrics, "Minimal mode (hide sung lines)", settings.MinimalMode,
             value => settings.MinimalMode = value);
-        Note(lyrics, "Word fill uses actual TTML start/end times (or " +
-            "enhanced-LRC word onsets), never made-up word durations. " +
-            "Without word timings, lines continue syncing normally. " +
-            "These options affect both the preview and the TV.");
+        Note(lyrics, "Word fill and active-word grow use genuine TTML/YRC " +
+            "timestamps (or enhanced-LRC onsets). Word enlargement is visual " +
+            "only and does not shift or rewrap lyric lines. With line-timed " +
+            "lyrics, the usual line emphasis remains. Both displays use " +
+            "these settings.");
 
         var bottom = new Panel { Dock = DockStyle.Bottom, Height = 51,
             BackColor = Color.FromArgb(17, 23, 39) };
