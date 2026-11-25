@@ -13,7 +13,16 @@ internal static class LyricsInterlude
     internal const long MinimumGapMs = 3000;
     internal const long PreHideMs = 500;
 
-    internal static InterludeSpan? At(IReadOnlyList<LrcLine> lines, long playheadMs)
+    // The dot animation ends 500ms before singing, but the lyric preview
+    // must stay focused on the upcoming line through that final half-second.
+    internal static InterludeSpan? Around(IReadOnlyList<LrcLine> lines, long playheadMs) =>
+        Find(lines, playheadMs, hideEarly: false);
+
+    internal static InterludeSpan? At(IReadOnlyList<LrcLine> lines, long playheadMs) =>
+        Find(lines, playheadMs, hideEarly: true);
+
+    private static InterludeSpan? Find(IReadOnlyList<LrcLine> lines,
+        long playheadMs, bool hideEarly)
     {
         if (lines.Count == 0 || playheadMs < 0) return null;
         long lastVocalEnd = 0;
@@ -23,7 +32,7 @@ internal static class LyricsInterlude
             long nextStart = Math.Max(0, line.AtMs);
             long gap = nextStart - lastVocalEnd;
             if (gap >= MinimumGapMs && playheadMs >= lastVocalEnd &&
-                playheadMs < nextStart - PreHideMs)
+                playheadMs < nextStart - (hideEarly ? PreHideMs : 0))
                 return new InterludeSpan(lastVocalEnd, nextStart);
             if (playheadMs < nextStart) return null;
             long following = i + 1 < lines.Count ? lines[i + 1].AtMs : long.MaxValue;
