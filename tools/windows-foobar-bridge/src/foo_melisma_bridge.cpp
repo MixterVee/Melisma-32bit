@@ -61,6 +61,7 @@ static_assert(offsetof(ArtworkSnapshot, bytes) == 32);
 HANDLE g_artMapping = nullptr;
 ArtworkSnapshot* g_art = nullptr;
 now_playing_album_art_notify* g_artNotify = nullptr;
+bool g_embeddedCoverActive = false;
 
 HANDLE g_mapping = nullptr;
 BridgeSnapshot* g_shared = nullptr;
@@ -81,6 +82,28 @@ void publishArtwork(album_art_data::ptr data, bool finished = true) noexcept {
     InterlockedIncrement(&g_art->sequence);
 }
 
+
+// For files with an embedded front cover, prefer that EXACT image over
+// external folder images, online lookups or Windows media-session thumbnails.
+// Called once per new Foobar track, not during playback/audio callbacks.
+bool publishEmbeddedFrontCover(metadb_handle_ptr track) noexcept {
+    if (g_art == nullptr || track.is_empty()) return false;
+    try {
+        abort_callback_dummy abort;
+        auto extractor = album_art_extractor::g_open(
+            file_ptr(), track->get_path(), abort);
+        auto embedded = extractor->query(album_art_ids::cover_front, abort);
+        if (embedded.is_valid() && embedded->size() > 128 &&
+            embedded->size() <= kMaxArtBytes) {
+            publishArtwork(embedded);
+            return true;
+        }
+    } catch (...) {
+        // No supported embedded cover: the centralized Foobar artwork
+        // service can still supply an external/folder front cover.
+    }
+    return false;
+}
 
 void writeField(char (&buffer)[256], const pfc::string8& value) noexcept {
     std::memset(buffer, 0, sizeof(buffer));
@@ -160,10 +183,13 @@ public:
         ++g_generation;
         publishArtwork(album_art_data::ptr(), false); // do not reuse prior cover
         publishMetadata(track);
+        g_embeddedCoverActive = publishEmbeddedFrontCover(track);
         publishFromFoobar();
     }
     void on_playback_edited(metadb_handle_ptr track) override {
         publishMetadata(track);
+        // Artwork can change when the user updates this file's tags.
+        g_embeddedCoverActive = publishEmbeddedFrontCover(track);
     }
 };
 track_events* g_trackEvents = nullptr;
@@ -249,7 +275,11 @@ public:
         try {
             if (g_art) {
                 g_artNotify = now_playing_album_art_notify_manager::get()->add(
-                    [](album_art_data::ptr artwork) { publishArtwork(artwork); });
+                    [](album_art_data::ptr artwork) {
+                        // Do not overwrite a definite embedded cover with a
+                        // different external/previous-cover result.
+                        if (!g_embeddedCoverActive) publishArtwork(artwork);
+                    });
             }
         } catch (...) {
             console::print("foo_melisma_bridge: native artwork notify unavailable");
@@ -262,7 +292,8 @@ public:
                 ++g_generation;
                 publishArtwork(album_art_data::ptr(), false);
                 publishMetadata(playing);
-                if (g_artNotify) {
+                g_embeddedCoverActive = publishEmbeddedFrontCover(playing);
+                if (g_artNotify && !g_embeddedCoverActive) {
                     try {
                         auto existing = now_playing_album_art_notify_manager::get()->current();
                         if (existing.is_valid()) publishArtwork(existing);
