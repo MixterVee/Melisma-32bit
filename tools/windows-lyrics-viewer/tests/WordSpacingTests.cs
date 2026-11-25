@@ -43,9 +43,9 @@ internal static class WordSpacingTests
             "Never merges or splits actual source-timed tokens");
         check(outcome[0].Words![6].Text.StartsWith(" to"),
             "Inserted space belongs to the following timed token");
-        check(outcome.All((line, i) => line.Words != null &&
+        check(outcome.Select((line, i) => line.Words != null &&
                 line.Words.Zip(timed[i].Words!, (a, b) =>
-                    a.AtMs == b.AtMs && a.EndMs == b.EndMs).All(x => x)),
+                    a.AtMs == b.AtMs && a.EndMs == b.EndMs).All(x => x)).All(x => x),
             "Every original word start and end timestamp is identical");
 
         var wrongWords = new List<LrcLine>
