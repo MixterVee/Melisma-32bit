@@ -90,6 +90,7 @@ internal sealed class LyricsController : Form
     private string _artworkStatus = "No track artwork loaded";
     private long _nativeCoverRequestedAt;
     private bool _artworkFallbackStarted;
+    private bool _manualArtworkForTrack;
     private int _nativeCoverSequence = -1;
     private ulong _nativeCoverGeneration;
     private static readonly HttpClient Client = CreateHttpClient();
@@ -303,6 +304,8 @@ internal sealed class LyricsController : Form
                 {
                     ++_artworkRequestId; // Invalidate previous song's image lookup.
                     _artworkStatus = "New Foobar track · verifying cover";
+                    _nativeCoverRequestedAt = Environment.TickCount64;
+                    _manualArtworkForTrack = false;
                 }
                 _clockSource = "Foobar bridge";
                 _playerState = native.State;
@@ -441,10 +444,10 @@ internal sealed class LyricsController : Form
                 tags.Generation == _lastFoobarTrackGeneration &&
                 !string.IsNullOrWhiteSpace(tags.Title);
             string title = nativeCurrent ? tags.Title : (props?.Title ?? "").Trim();
-            string artist = nativeCurrent && tags.Artist.Length > 0
-                ? tags.Artist : (props?.Artist ?? "").Trim();
-            string album = nativeCurrent && tags.Album.Length > 0
-                ? tags.Album : (props?.AlbumTitle ?? "").Trim();
+            // An empty Foobar tag must NOT be filled with stale Windows
+            // metadata belonging to the previously played song.
+            string artist = nativeCurrent ? tags.Artist : (props?.Artist ?? "").Trim();
+            string album = nativeCurrent ? tags.Album : (props?.AlbumTitle ?? "").Trim();
             if (title.Length == 0)
             {
                 _notice = "Waiting for Foobar2000 song metadata.";
@@ -467,6 +470,7 @@ internal sealed class LyricsController : Form
             // instead of the selected old-cover-to-new-cover crossfade.
             int artworkRequest = ++_artworkRequestId;
             _artworkFallbackStarted = false;
+            _manualArtworkForTrack = false;
             _nativeCoverRequestedAt = Environment.TickCount64;
             _nativeCoverSequence = -1;
             _nativeCoverGeneration = _lastFoobarTrackGeneration;
@@ -509,10 +513,26 @@ internal sealed class LyricsController : Form
 
     private void ProcessNativeArtwork()
     {
-        if (IsDisposed || _loadedFor.Length == 0 ||
-            _lastLoadedGeneration != _lastFoobarTrackGeneration ||
+        if (IsDisposed || _manualArtworkForTrack ||
             !_nativeArtwork.TryRead(out var sample))
             return;
+
+        if (_loadedFor.Length == 0 ||
+            _lastLoadedGeneration != _lastFoobarTrackGeneration)
+        {
+            // Even a completely untagged file must not display the previous
+            // song's cover forever if Foobar cannot publish a title.
+            if (Environment.TickCount64 - _nativeCoverRequestedAt >= 1800 &&
+                !_artworkFallbackStarted)
+            {
+                _artworkFallbackStarted = true;
+                _artwork.Replace(null);
+                _artworkStatus = "Waiting for current track tags · old cover cleared";
+                _preview.Invalidate();
+                _projection?.Redraw();
+            }
+            return;
+        }
 
         // The painting loop must not mistake the last track's bytes for the
         // new track's cover while Foobar is loading its own album-art manager.
@@ -665,6 +685,7 @@ internal sealed class LyricsController : Form
             if (imageBytes.Length > 8388608)
                 throw new InvalidOperationException("Maximum cover size is 8 MB.");
             ++_artworkRequestId;
+            _manualArtworkForTrack = true;
             _artwork.Replace(imageBytes);
             _artworkStatus = "Manually selected cover image";
             _preview.Invalidate();
