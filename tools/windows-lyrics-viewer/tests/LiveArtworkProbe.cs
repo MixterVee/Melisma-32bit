@@ -1,8 +1,8 @@
 using MelismaLyricsViewer;
 
 Console.WriteLine("Live catalog/NetEase tests — no lyrics text logged");
-const song = "Blinding Lights";
-const artist = "The Weeknd";
+const string song = "Blinding Lights";
+const string artist = "The Weeknd";
 using var coverCancel = new CancellationTokenSource(TimeSpan.FromSeconds(12));
 try
 {
