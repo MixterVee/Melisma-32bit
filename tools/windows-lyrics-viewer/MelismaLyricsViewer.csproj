@@ -10,4 +10,9 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <ApplicationTitle>Melisma Universal Lyrics Preview</ApplicationTitle>
   </PropertyGroup>
+  <!-- The nested standalone smoke-test project has its own Program/obj.
+       Exclude it from this WinForms application's default wildcard glob. -->
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
 </Project>
