@@ -103,6 +103,46 @@ internal static class ParserSmokeTests
         Check(!BetterLyricsWordProvider.PlausibleDuration(q, 180000),
             "different shorter recording rejected");
 
+        // Android Melisma's recording-identity matching should accept release
+        // tags and featured credits, but not a different artist.
+        Check(AndroidLyricsMatch.Score("Blinding Lights", "The Weeknd", 200000,
+            "Blinding Lights", "The Weeknd", 200000) > 0.95f,
+            "Android-style exact matching accepts known recording");
+        Check(AndroidLyricsMatch.Score("Blinding Lights (Remastered)", "The Weeknd", 200000,
+            "Blinding Lights", "The Weeknd", 200000) > 0.90f,
+            "Android-style title cleaning accepts remastered release");
+        Check(AndroidLyricsMatch.Score("Blinding Lights", "The Weeknd", 200000,
+            "Blinding Lights", "Taylor Swift", 200000) == 0,
+            "Android-style artist contradiction veto");
+        Check(AndroidLyricsMatch.Score("Shape of You", "Ed Sheeran", 234000,
+            "Perfect", "Ed Sheeran", 234000) < 0.62f,
+            "Android-style title mismatch rejection");
+
+        var timedLine = new LrcLine(1000, "Hello world", [
+            new LrcWord(1000, "Hello "), new LrcWord(1400, "world")
+        ]);
+        var longEnough = new LyricsSourceOrchestrator.Answer(
+            "lrcred", "lrc.red", Enumerable.Repeat(timedLine, 20).ToList(), "", false);
+        var fragment = new LyricsSourceOrchestrator.Answer(
+            "amll", "AMLL", Enumerable.Repeat(timedLine, 2).ToList(), "", false);
+        Check(LyricsSourceOrchestrator.EffectiveTier(longEnough, 30) == 2,
+            "Android full word-timed document remains word-tier");
+        Check(LyricsSourceOrchestrator.EffectiveTier(fragment, 30) == 1,
+            "Android downgrades truncated word-timed fragment");
+
+        string malformedXml = """
+            <QrcInfos><LyricInfo><Lyric_1 LyricContent="[ti:Wanderlust]
+            [ar:The Weeknd]
+            [6000,1300]Hello (6000,700)& world(6700,600)" /></LyricInfo></QrcInfos>
+            """;
+        var fallbackQrc = QrcWordParser.Parse(malformedXml, "Wanderlust", "The Weeknd");
+        Check(fallbackQrc.Count == 1 && fallbackQrc[0].Words is { Count: 2 },
+            "Malformed QQ XML envelope falls back to safely extracted QRC");
+        Check(fallbackQrc[0].Words![1].AtMs == 6700,
+            "Malformed QQ QRC still preserves real word onset");
+        Check(fallbackQrc[0].Text.Contains("world"),
+            "Malformed QQ QRC still reconstructs lyric text");
+
         Console.WriteLine($"PASS: {_passed} lyric parser checks.");
     }
 }
