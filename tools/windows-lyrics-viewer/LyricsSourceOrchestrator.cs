@@ -63,6 +63,10 @@ internal static class LyricsSourceOrchestrator
         }
     }
 
+    private static string CueTime(long milliseconds) =>
+        TimeSpan.FromMilliseconds(Math.Max(0, milliseconds))
+            .ToString(@"mm\:ss\.fff");
+
     internal static int EffectiveTier(Answer answer, int fullest)
     {
         if (answer.Total == 0) return 0;
@@ -122,7 +126,7 @@ internal static class LyricsSourceOrchestrator
         string status = string.Join(Environment.NewLine, all.Select(a =>
             $"- {a.Name}: {(a.Total > 0
                 ? $"{a.Total} lines, {a.Timed} word-timed, " +
-                  $"first cue {TimeSpan.FromMilliseconds(a.Lines!.Min(x => x.AtMs)):mm\\:ss\\.fff} " +
+                  $"first cue {CueTime(a.Lines!.Min(x => x.AtMs))} " +
                   $"({(a.WordTimed ? "Word" : "Line")} tier)"
                 : a.Reason)}"));
 
