@@ -299,6 +299,11 @@ internal sealed class LyricsController : Form
                 // generation change, so ask GSMTC for metadata immediately.
                 bool newTrack = native.Generation != _lastFoobarTrackGeneration;
                 _lastFoobarTrackGeneration = native.Generation;
+                if (newTrack)
+                {
+                    ++_artworkRequestId; // Invalidate previous song's image lookup.
+                    _artworkStatus = "New Foobar track · verifying cover";
+                }
                 _clockSource = "Foobar bridge";
                 _playerState = native.State;
                 _durationMs = native.DurationMs > 0 ? (long)native.DurationMs : 0;
@@ -1276,6 +1281,11 @@ internal sealed class AlbumArtworkState : IDisposable
     public float FadeSeconds { get; set; } = 4f;
     public float CoverFadeSeconds { get; set; } = 3.4f;
     public Image? Previous => _previous;
+    // Outgoing art is permitted ONLY while its configured fade is active.
+    // Previously _previous survived indefinitely when the new song had no art.
+    public Image? VisiblePrevious => Progress < 1f || PanelProgress < 1f
+        ? _previous : null;
+    public Image? VisibleImage => _current ?? VisiblePrevious;
     public Image? Current => _current;
     public float Progress => ProgressFor(FadeSeconds);
     public float PanelProgress => ProgressFor(CoverFadeSeconds);
@@ -1732,7 +1742,7 @@ internal sealed class LyricsCanvas : Control
     private void DrawIdleTakeover(Graphics g)
     {
         if (_idleBackground.LivingMix <= 0.001f) return;
-        var art = _artwork.Enabled ? _artwork.Current ?? _artwork.Previous : null;
+        var art = _artwork.Enabled ? _artwork.VisibleImage : null;
         _fluidLiving.Draw(g, ClientRectangle, art, _idleBackground.LivingMix);
     }
 
@@ -1805,7 +1815,7 @@ internal sealed class LyricsCanvas : Control
 
         if (style == MelismaBackgroundStyle.Living)
         {
-            var livingArt = _artwork.Enabled ? _artwork.Current ?? _artwork.Previous : null;
+            var livingArt = _artwork.Enabled ? _artwork.VisibleImage : null;
             _fluidLiving.Draw(g, ClientRectangle, livingArt, layerOpacity);
             // Darken the regular Living BACKGROUND for readable lyrics.
             // The idle screensaver is intentionally shown without this scrim.
@@ -1973,7 +1983,7 @@ internal sealed class LyricsCanvas : Control
             if (_artwork.Current != null && fade > 0f)
                 DrawCover(g, _artwork.Current, CoverFade.NewOpacity(fade), coverBox);
         }
-        if (!_artwork.Enabled || _artwork.Current == null && _artwork.Previous == null)
+        if (!_artwork.Enabled || _artwork.Current == null && _artwork.VisiblePrevious == null)
         {
             using var markFont = new Font("Segoe UI Symbol", Math.Clamp(maxCover / 5f, 14, 54));
             using var mark = new SolidBrush(Color.FromArgb(180, 198, 216, 230));
