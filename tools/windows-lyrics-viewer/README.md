@@ -1,3 +1,24 @@
+# Melisma Universal — Windows v0.6.10 (test build)
+
+## Android lyric lookup parity + lower CPU use
+
+**Reported regressions:** On v0.6.9 many songs remained at "Waiting for synchronized lyrics"; others took too long to display. CPU usage rose sharply. This release repairs provider matching and fallback, not just the waiting message.
+
+- **Android-style metadata:** the title alone makes a request usable. A missing artist is searched cautiously (no arbitrary title-only mismatches). LRCLIB first checks tagged exact data, then a cleaned song title and first credited artist, then a scored catalogue search. Excessively strict album tagging and the artificial search delay are removed.
+- **Plain lyrics when synchronization is unavailable:** LRCLIB plain text is shown in the lyric viewport, clearly labelled as **not synchronized**, with mouse-wheel scrolling. If another provider returns real timestamps, synced lyrics replace plain text automatically. No invented timing or changes to MP3 files.
+- **First paint from cache:** Windows now reuses local cached lyrics regardless of inconsistent album tags. Old cache entries remain readable. A cached word-timed track no longer re-queries all providers on every replay; cached line-only/plain tracks get at most one background improvement request per app session. Manual Find lyrics still refreshes.
+- **Provider isolation:** exceptions from one broken provider are reported as that source's failure; they do not abort other sources or erase a successfully retrieved lyric.
+- **Adaptive CPU rendering:** 40fps only for actually sung word-timed lines, about 15fps for normal timed lyrics, 13fps while waiting/intro dots, and about 8fps when idle/paused. The controller does not paint while minimized. The TV display no longer has its own duplicate 40fps timer; both displays share the same playback-driven redraw clock.
+- **Prior v0.6.9 fixes retained:** direct cover-to-cover transitions, three instrumental dots, window placement; retains v0.6.8 smooth word enlargement and cached loading.
+
+### Validation checklist
+1. Try five to ten songs that previously sat at "Waiting for synchronized lyrics." They should display timed lyrics, static fallback text, or an explicit final no-match message. If still missing, open **Sources…** for the exact source outcomes.
+2. Play the same track twice: second play should open immediately from cache. Change a file's album metadata only: cache should still work for the same title/artist/duration.
+3. Watch Task Manager with Melisma on the main window alone, then with the second-screen output. Compare idle, instrumental, word-timed verse and paused CPU, and ensure active words still animate smoothly.
+4. Recheck cover transitions and remembered window placement.
+
+---
+
 # Melisma Universal — Windows v0.6.9 (test build)
 
 ## Fix: continuous cover-art changes, Android instrumental dots, remembered window
