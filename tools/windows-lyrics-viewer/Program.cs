@@ -34,6 +34,7 @@ internal sealed record LyricFrame(
 internal sealed class LyricsController : Form
 {
     private readonly NativeTimelineReader _bridge = new();
+    private readonly NativeTrackMetadataReader _nativeTags = new();
     private readonly SongOffsetStore _offsets = new();
     private readonly LyricsResultCache _lyricCache = new();
     private readonly AlbumArtworkState _artwork = new();
@@ -72,6 +73,7 @@ internal sealed class LyricsController : Form
     private bool _clockUsable;
     private long _lastClockLabelTick;
     private ulong _lastFoobarTrackGeneration;
+    private ulong _lastLoadedGeneration;
 
     // Secondary Windows media-session timeline, usable when Foobar's
     // native bridge is absent. Unlike track metadata, this may not be
@@ -89,7 +91,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.10";
+        Text = "Melisma Universal · Windows v0.6.11";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -236,6 +238,7 @@ internal sealed class LyricsController : Form
             _screenTimer.Stop();
             _mediaTimer.Stop();
             _bridge.Dispose();
+            _nativeTags.Dispose();
             _searchCancellation?.Cancel();
             _searchCancellation?.Dispose();
             _projection?.Close();
@@ -287,14 +290,13 @@ internal sealed class LyricsController : Form
                 // Android reacts to track-change events, not a fixed media
                 // poll. Foobar's existing bridge publishes that event as a
                 // generation change, so ask GSMTC for metadata immediately.
-                if (native.Generation != _lastFoobarTrackGeneration)
-                {
-                    _lastFoobarTrackGeneration = native.Generation;
-                    if (_manager != null && !_mediaBusy) _ = PollMediaAsync();
-                }
+                bool newTrack = native.Generation != _lastFoobarTrackGeneration;
+                _lastFoobarTrackGeneration = native.Generation;
                 _clockSource = "Foobar bridge";
                 _playerState = native.State;
                 _durationMs = native.DurationMs > 0 ? (long)native.DurationMs : 0;
+                // Duration must be updated before metadata triggers a search.
+                if (newTrack && !_mediaBusy) _ = PollMediaAsync();
                 long age = Math.Clamp(sampleAge, 0L, 350L);
                 _positionMs = (long)native.PositionMs +
                     (native.State == 1 ? age : 0);
@@ -421,7 +423,7 @@ internal sealed class LyricsController : Form
             var album = (props.AlbumTitle ?? "").Trim();
             if (title == _song && artist == _artist && album == _album) return;
             _song = title; _artist = artist; _album = album;
-            _loadedFor = title + "|" + artist + "|" + album;
+            _loadedFor = title + "|" + artist + "|" + album + "|" + _durationMs;
             // Keep the previous cover displayed until the replacement arrives.
             // Clearing here produced a blank panel followed by a new fade-IN,
             // instead of the selected old-cover-to-new-cover crossfade.
