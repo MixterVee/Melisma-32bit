@@ -68,6 +68,41 @@ internal static class ParserSmokeTests
         catch (XmlException) { blocked = true; }
         Check(blocked, "DTD/XML external entity input prohibited");
 
+        // AMLL titles may append release/featured-artist variants. The
+        // original v0.6 code rejected these despite a matching artist.
+        using var variants = System.Text.Json.JsonDocument.Parse("""
+            {"musicNames":["Blinding Lights (Remastered)","Blinding Lights"],
+             "artistNames":["The Weeknd"]}
+            """);
+        Check(AmllWordProvider.Matches(variants.RootElement,
+            "Blinding Lights", "The Weeknd"), "AMLL accepted alternate release title");
+        Check(AmllWordProvider.Matches(variants.RootElement,
+            "Blinding Lights (Remastered)", "The Weeknd"), "AMLL accepts remaster metadata");
+        Check(!AmllWordProvider.Matches(variants.RootElement,
+            "Save Your Tears", "The Weeknd"), "AMLL refuses incorrect title");
+        Check(!AmllWordProvider.Matches(variants.RootElement,
+            "Blinding Lights", "Taylor Swift"), "AMLL refuses incorrect artist");
+
+        string qrc = """
+            <QrcInfos><LyricInfo><Lyric_1 LyricType="1" LyricContent="[ti:Wanderlust]
+            [ar:The Weeknd]
+            [5767,324]Wanderlust - (5767,109)The (5876,106)Weeknd(5982,109)
+            [6091,2858]Lyrics (6091,125)by：(6216,117)Somebody(6333,120)
+            [292333,1910]Let (292333,136)it (292469,97)come (292566,202)to (293301,377)you(293678,565)" /></LyricInfo></QrcInfos>
+            """;
+        var q = QrcWordParser.Parse(qrc, "Wanderlust", "The Weeknd");
+        Check(q.Count == 1, "QRC title/credit lines removed");
+        Check(q[0].Text == "Let it come to you", "QRC words reconstruct the original text");
+        Check(q[0].Words is { Count: 5 }, "QRC returns five word timestamps");
+        Check(q[0].Words![2].AtMs == 292566 &&
+            q[0].Words![2].EndMs == 292768, "QRC uses absolute start/duration");
+        Check(QrcWordParser.Parse(qrc, "Wanderlust", "Other Artist").Count == 0,
+            "QRC metadata rejects an incorrect artist");
+        Check(BetterLyricsWordProvider.PlausibleDuration(q, 310000),
+            "reasonable song length accepted");
+        Check(!BetterLyricsWordProvider.PlausibleDuration(q, 180000),
+            "different shorter recording rejected");
+
         Console.WriteLine($"PASS: {_passed} lyric parser checks.");
     }
 }

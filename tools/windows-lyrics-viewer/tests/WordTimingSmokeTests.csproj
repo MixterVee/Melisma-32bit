@@ -8,6 +8,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../WordTimedLyrics.cs" Link="WordTimedLyrics.cs" />
+    <Compile Include="../AlternativeWordProviders.cs" Link="AlternativeWordProviders.cs" />
     <Compile Include="ParserSmokeTests.cs" />
   </ItemGroup>
 </Project>

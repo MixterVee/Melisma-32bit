@@ -1,4 +1,67 @@
-# Melisma Universal — Windows v0.6 (test build)
+# Melisma Universal — Windows v0.6.1 (test build)
+
+## Fix: vastly overrestrictive v0.6 word-lyrics matching
+
+In v0.6, AMLL was checked with a **combined title+artist** query and then
+the returned title/artist were compared almost exactly. The API uses
+intersection (AND) matching for multiple search filters, so this discarded
+many legitimate word-timed files whose metadata included featured artists,
+release variants, or different artist/title forms.
+
+v0.6.1 remedies the application-side under-detection. It does **not** create
+fake word timestamps.
+
+- **AMLL TTML**: searches first by title plus primary artist, then more
+  broadly by title alone, but still verifies the actual candidate's title
+  and primary artist before accepting it.
+- Supports safe alternate-title variants (e.g. remastered/release labels,
+  featuring credits). Continues rejecting unrelated titles and artists.
+- Handles TTML tracks with *some* genuinely word-timed lines mixed with
+  single-word or line-timed lines. The previous 50% threshold threw away
+  otherwise useful matches.
+- If AMLL has no suitable word timing, it now checks **Better Lyrics TTML**
+  and then **Better Lyrics QQ QRC** (documented word-timing provider);
+  each parsed word is based on source start/end timestamps.
+- The QQ parser handles the documented XML envelope, absolute
+  word-start/duration tokens, and skips song-title cards and lyric credits.
+- Reassures against matching the wrong recording: checks QQ embedded artist/
+  title metadata when available and rejects lyrics running beyond the track
+  duration by more than 8 seconds.
+- If none of these sources has real word timing, the existing reliable
+  LRCLIB line-timed fallback remains intact, with no estimated word timing.
+- Status labels show which word-timed source supplied the data.
+- Automated smoke tests now exercise AMLL release variants and mismatch
+  rejection plus QQ XML word timing, lyric credits and duration checks.
+- All v0.5.4 Cinema layout, blurred backgrounds, album transitions,
+  full-screen Living screensaver and offset preferences remain unchanged.
+
+### Test plan
+
+1. Keep v0.6 as a backup and extract v0.6.1 to a fresh folder. Leave
+   the already-working foobar2000 bridge installed.
+2. Try the same songs that were line-synced in v0.6.
+3. Watch the status strip: successful results are marked
+   **Word-synced · AMLL TTML DB** or **Word-synced · Better Lyrics · TTML/QQ**.
+4. Pause and seek: verify actual words/partial words follow the song
+   position, and the existing +100/-100ms correction still works.
+5. Songs that still fall back to **Line-synced · LRCLIB** may genuinely
+   lack available word timing. Provider uptime, rate limits and metadata
+   still affect real-world coverage. No percentage improvement is promised.
+6. Try one long line in Cinema and the full-screen Living idle fade to
+   verify the earlier features are unchanged.
+
+### Source availability notes
+
+- AMLL public TTML database: https://amll.dev/reference/http-api/overview.html
+- Better Lyrics TTML/QQ service:
+  https://docs.betterlyrics.org/docs/providers
+- Better Lyrics' TTML lookup may require an API key for **uncached** songs.
+  The public cached lookup is best effort. QQ word timing is documented as
+  accessible without an API key. Network conditions may still vary.
+- This version does not integrate any service requiring the user's private
+  credentials or secretly substitute generated/predicted word timestamps.
+
+## Retained from v0.6
 
 ## New: genuine word-by-word lyric synchronization
 
