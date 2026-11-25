@@ -26,6 +26,7 @@ internal static class NetEaseWordProvider
         string clean = AndroidLyricsMatch.CleanTitle(title);
         var queries = new[] { title + " " + primary, title,
             clean + " " + primary }.Distinct().ToList();
+        List<LrcLine>? lineTimedFallback = null;
 
         foreach (string query in queries)
         {
@@ -92,9 +93,23 @@ internal static class NetEaseWordProvider
                 if (WordTimedLyrics.HasWordTimings(parsed) &&
                     BetterLyricsWordProvider.PlausibleDuration(parsed, durationMs))
                     return parsed;
+
+                // Android Melisma accepts the provider's genuine plain LRC
+                // when YRC word timing is missing. The Windows port had been
+                // throwing those real line timestamps away and leaving users
+                // with untimed text instead. Keep the first plausible line-
+                // timed answer while continuing to seek better word timing.
+                string lrc = ExtractLyric(doc.RootElement, "lrc");
+                if (!string.IsNullOrWhiteSpace(lrc))
+                {
+                    var lineTimed = LrcParser.Parse(lrc);
+                    if (lineTimed.Count > 0 &&
+                        BetterLyricsWordProvider.PlausibleDuration(lineTimed, durationMs))
+                        lineTimedFallback ??= lineTimed;
+                }
             }
         }
-        return null;
+        return lineTimedFallback;
     }
 
     private static string GetText(JsonElement entry, string name) =>
