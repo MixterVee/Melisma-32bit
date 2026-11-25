@@ -35,7 +35,7 @@ internal sealed class MelismaDisplaySettings
     // show Living without overwriting the user's saved background style.
     public bool IdleLivingEnabled { get; set; } = true;
     public int IdleLivingDelaySeconds { get; set; } = 12;
-    public float IdleReturnFadeSeconds { get; set; } = 6f;
+    public float IdleLivingFadeSeconds { get; set; } = 6f;
     public float FontScale { get; set; } = 1f;
     public MelismaLyricsFont Font { get; set; } = MelismaLyricsFont.System;
     public bool DepthBlur { get; set; } = false;
@@ -61,8 +61,8 @@ internal sealed class MelismaDisplaySettings
             settings.CoverBlur = Math.Clamp(settings.CoverBlur, 0, 67);
             settings.IdleLivingDelaySeconds = Math.Clamp(
                 settings.IdleLivingDelaySeconds, 10, 15);
-            settings.IdleReturnFadeSeconds = float.IsFinite(settings.IdleReturnFadeSeconds)
-                ? Math.Clamp(settings.IdleReturnFadeSeconds, 2f, 12f) : 6f;
+            settings.IdleLivingFadeSeconds = float.IsFinite(settings.IdleLivingFadeSeconds)
+                ? Math.Clamp(settings.IdleLivingFadeSeconds, 2f, 12f) : 6f;
             settings.FontScale = float.IsFinite(settings.FontScale)
                 ? Math.Clamp(settings.FontScale, 0.7f, 1.6f) : 1f;
             if (!Enum.IsDefined(settings.Layout)) settings.Layout = MelismaViewMode.Lyrics;
@@ -156,16 +156,16 @@ internal sealed class MelismaDisplaySettingsForm : Form
         Number(background, "Idle Living delay", settings.IdleLivingDelaySeconds,
             10, 15, 1, 0,
             value => settings.IdleLivingDelaySeconds = (int)value, "seconds");
-        Number(background, "Return from idle fade", (decimal)settings.IdleReturnFadeSeconds,
+        Number(background, "Idle Living fade (in/out)", (decimal)settings.IdleLivingFadeSeconds,
             2, 12, 0.5m, 1,
-            value => settings.IdleReturnFadeSeconds = (float)value, "seconds");
+            value => settings.IdleLivingFadeSeconds = (float)value, "seconds");
         Note(background,
             "Background transition changes the full-screen art; Cover art " +
             "transition changes the separate Cinema album cover, independently. " +
             "After 10–15 seconds without music, fluid Living covers the whole " +
             "lyrics display, including Cinema artwork and song information. " +
-            "The live lyrics continue underneath and fade back in over your " +
-            "selected return duration when music resumes. " +
+            "Lyrics remain synchronized underneath. Your one selected idle " +
+            "fade duration applies both entering and leaving the screensaver. " +
             "Living (classic) remains a lightweight gradient effect; Living now " +
             "uses organically moving colour clouds. " +
             "based on the selected cover's colours. Auto currently selects Living. " +
