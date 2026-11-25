@@ -176,8 +176,8 @@ internal sealed class MelismaDisplaySettingsForm : Form
             "Lyrics remain synchronized underneath. Your one selected idle " +
             "fade duration applies both entering and leaving the screensaver. " +
             "Living (classic) remains a lightweight gradient effect; Living now " +
-            "uses organically moving colour clouds. " +
-            "based on the selected cover's colours. Auto currently selects Living. " +
+            "uses organically moving colour clouds based on the cover. " +
+            "Auto currently selects Living. " +
             "Artist falls back to Cover art until a separate artist-image source is added. " +
             "When enabled, missing player artwork is searched in Apple's " +
             "public catalog using title/artist/album matching.");
