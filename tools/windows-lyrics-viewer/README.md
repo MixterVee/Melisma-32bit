@@ -1,3 +1,27 @@
+# Melisma Universal Windows v0.6.12 — lyrics visible before the vocals (test build)
+
+## Fix the instrumental-gap lyric blackout
+
+In the November 25 test video for **International Harvester**, Melisma already had 57 synchronized lines in its cache, but showed only three bouncing dots for a roughly 30-second intro. The v0.6.9 Windows renderer returned from paint when `LyricsInterlude.At()` was true. That made the dots **replace the entire lyric page**, whereas Android Melisma represents the interlude as an animated row **within** its normally visible, scrolling lyrics.
+
+- **Show upcoming lyrics as soon as they're ready**, including during long instrumental introductions, gaps, and before the first timestamp. They ease into view in 750ms, independently of playback time; no lyrics, MP3s or timestamps are modified.
+- **Keep the dots** below the upcoming line, between surrounding lyric rows, and fade them out shortly before singing starts (Android's 500ms pre-hide).
+- **Gently center the next line during long gaps** within 850ms, leaving it in place through the final half-second so the first sung word doesn't make the page jump backwards.
+- **Do not highlight prematurely**: upcoming text is readable in a muted neutral color, previously sung lines dim, and cyan/word animation still follows source timestamps.
+- **Performance preserved**: no extra timer or render loop; v0.6.10 adaptive painting and v0.6.11 Foobar metadata and NetEase LRC fallback remain intact.
+- Added automated regression cases for gap preview, pre-hide window, upcoming index, fade timing and scroll focus.
+
+### Manual test
+1. Play **International Harvester** from time 0. The first upcoming lines should softly appear immediately; three dots may accompany the instrumental introduction but should **not hide any lyrics** until vocals begin.
+2. Watch the first lyric begin: it should turn cyan at its genuine timestamp without a jump, and later lines should remain visible beneath it.
+3. Play a song with a long instrumental break after the first verse: the upcoming line should glide into position while dots remain separate.
+4. Seek backwards into the intro and forwards into a chorus, and compare the second-screen output with the controller.
+5. Monitor Melisma CPU with and without the TV preview, and confirm the earlier cover-to-cover crossfade works.
+
+This is a Windows CI build, not a fully confirmed real-device test. The existing Foobar Bridge v0.2 remains compatible; no bridge reinstall is needed.
+
+---
+
 # Melisma Universal — Windows v0.6.11 (test build)
 
 ## Fix: correct Foobar tags and genuine line-synced lyrics
