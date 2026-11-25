@@ -23,6 +23,13 @@ try
     Console.WriteLine("NetEase Blinding Lights: " +
         (lines == null ? "NONE or no public word timing" :
          "lines=" + lines.Count + " firstMs=" + lines[0].AtMs));
+    if (lines is { Count: > 0 })
+    {
+        Console.WriteLine("NetEase first 12 cue milliseconds: " +
+            string.Join(", ", lines.Take(12).Select(l => l.AtMs)));
+        Console.WriteLine("NetEase opening entry text (max 55 chars): " +
+            lines[0].Text[..Math.Min(55, lines[0].Text.Length)]);
+    }
 }
 catch (Exception ex) { Console.WriteLine("NetEase error: " + ex.GetType().Name); }
 
