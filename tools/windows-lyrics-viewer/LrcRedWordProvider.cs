@@ -120,6 +120,10 @@ internal static class AndroidLyricsMatch
     {
         float nameScore = Math.Max(Similarity(title, candidateTitle),
             Similarity(CleanTitle(title), CleanTitle(candidateTitle)));
+        // Even an exact artist/duration must not make a different song a
+        // valid candidate. Android's weighted score is the base; this extra
+        // guard prevents a known false positive with same-artist songs.
+        if (nameScore < 0.45f) return 0f;
         var artists = SplitArtists(artist);
         string primary = artists.FirstOrDefault() ?? artist;
         float artistScore;
