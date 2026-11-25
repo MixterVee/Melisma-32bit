@@ -1,27 +1,35 @@
 namespace MelismaLyricsViewer;
 
 /// <summary>
-/// A small Android-style grow/lift effect for the currently sung word.
-/// Uses the same authoritative word timestamps as cyan highlighting.
-/// This is a visual effect only; it does not alter lyrics or playback time.
+/// Smooth timing-driven word emphasis. The cyan fill always uses the
+/// provider's exact word timestamps; this scales a visual layer only.
+///
+/// In v0.6.7 a tiny word and a held note both grew by 8.5% over 60% of
+/// their own duration. Fast words therefore visibly popped. Android
+/// integrates animation with a physical spring, not that sharp one-word
+/// tween. Use a gentle zero-velocity envelope and adapt the amplitude to
+/// how long the word actually lasts. Short syllables barely swell; held
+/// words have time for a more visible, graceful breath.
 /// </summary>
 internal static class ActiveWordPulse
 {
     internal readonly record struct Focus(
         int WordIndex, float Progress, float Scale, float LiftEm);
 
-    internal static Focus? At(IReadOnlyList<LrcWord>? words,
+    public static Focus? At(IReadOnlyList<LrcWord>? words,
         long timeMs, bool simpleMode)
     {
         if (words is not { Count: > 0 }) return null;
+
         for (int i = 0; i < words.Count; i++)
         {
             var word = words[i];
             if (timeMs < word.AtMs) break;
 
-            // TTML/YRC gives us the real duration. An onset-only LRC
-            // supplies no duration; use a short 320ms purely VISUAL pulse
-            // without changing the onset-only highlight semantics.
+            // Word timestamps stay authoritative. For enhanced-LRC with
+            // onsets only, create a brief VISUAL pulse, not a new lyric
+            // timing duration. If a next word arrives, end the old visual
+            // pulse exactly on that next onset.
             long duration = word.EndMs > word.AtMs
                 ? word.EndMs - word.AtMs : 320L;
             long end = word.AtMs + duration;
@@ -29,18 +37,26 @@ internal static class ActiveWordPulse
                 end = Math.Min(end, words[i + 1].AtMs);
             if (timeMs >= end) continue;
 
-            float progress = Math.Clamp((timeMs - word.AtMs) /
-                (float)Math.Max(1, end - word.AtMs), 0f, 1f);
-            // Android's wordScale spline rises while the word is sung,
-            // overshoots slightly, then returns to normal at the word end.
-            // On smaller Windows TV fonts a touch more amplitude makes the
-            // movement legible without shuffling any line-layout positions.
-            float peak = simpleMode ? 1.045f : 1.085f;
-            float scale = progress < 0.60f
-                ? 1f + (peak - 1f) * Smooth(progress / 0.60f)
-                : 1f + (peak - 1f) *
-                    (1f - Smooth((progress - 0.60f) / 0.40f));
-            float lift = (scale - 1f) * (simpleMode ? 0.18f : 0.26f);
+            float effectiveDuration = Math.Max(1L, end - word.AtMs);
+            float progress = Math.Clamp(
+                (timeMs - word.AtMs) / effectiveDuration, 0f, 1f);
+
+            // A smooth sin² envelope starts and ends at zero velocity.
+            // It never jumps to a new scale, even if a source provides
+            // a very short syllable duration.
+            float wave = MathF.Sin(MathF.PI * progress);
+            float envelope = wave * wave;
+
+            // Don't try to cram a 6–8% pop into a 120-ms word. Very short
+            // words receive at most ~1% scale; 300-ms words ~1.7%, and
+            // longer 700-ms words can swell ~5.5%.
+            float longWord = Smooth((effectiveDuration - 140f) / 660f);
+            float amplitude = 0.010f + 0.048f * longWord;
+            if (simpleMode) amplitude *= 0.48f;
+
+            float scale = 1f + amplitude * envelope;
+            float lift = (scale - 1f) *
+                (simpleMode ? 0.14f : 0.22f);
             return new Focus(i, progress, scale, lift);
         }
         return null;
