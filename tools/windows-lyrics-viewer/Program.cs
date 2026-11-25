@@ -63,6 +63,20 @@ internal sealed class LyricsController : Form
     private bool _offsetSaved = true;
     private int _playerState;
     private bool _bridgeFound;
+    private bool _bridgeWasStale;
+    private long _bridgeAgeMs = -1;
+    private string _clockSource = "No playback clock";
+    private bool _clockUsable;
+    private long _lastClockLabelTick;
+
+    // Secondary Windows media-session timeline, usable when Foobar's
+    // native bridge is absent. Unlike track metadata, this may not be
+    // published by every foobar2000 configuration.
+    private bool _windowsTimelineValid;
+    private int _windowsState;
+    private long _windowsPositionMs;
+    private long _windowsDurationMs;
+    private long _windowsSampleTick;
     private string _loadedFor = "";
     private CancellationTokenSource? _searchCancellation;
     private int _artworkRequestId;
@@ -70,7 +84,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.2";
+        Text = "Melisma Universal · Windows v0.6.3";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -146,8 +160,9 @@ internal sealed class LyricsController : Form
         openCover.Click += OpenCoverImage;
         extraControls.Controls.Add(openCover);
         var lookupDetails = Button("Source details…", 144);
-        lookupDetails.Click += (_, _) => MessageBox.Show(this, _lookupReport,
-            "Melisma · Lyrics source diagnostics",
+        lookupDetails.Click += (_, _) => MessageBox.Show(this,
+            BuildDiagnostics(),
+            "Melisma · Lyrics and playback diagnostics",
             MessageBoxButtons.OK, MessageBoxIcon.Information);
         extraControls.Controls.Add(lookupDetails);
         var note = Label(9.5f, Color.FromArgb(175, 188, 204));
@@ -170,7 +185,16 @@ internal sealed class LyricsController : Form
         _screenTimer.Tick += (_, _) =>
         {
             ReadBridge();
-            _idleBackground.Update(_bridgeFound && _playerState == 1, _display);
+            _idleBackground.Update(_playerState == 1, _display);
+            // Show an independently verifiable position in the controller.
+            // Without this, cached lyrics look frozen when the bridge is
+            // unavailable, and nobody can tell whether time is advancing.
+            long now = Environment.TickCount64;
+            if (now - _lastClockLabelTick >= 400)
+            {
+                _lastClockLabelTick = now;
+                UpdateDelayLabel();
+            }
             _preview.Invalidate();
             _projection?.Redraw();
             // Avoid invalidating labels with identical text every frame.
@@ -228,19 +252,116 @@ internal sealed class LyricsController : Form
 
     private void ReadBridge()
     {
-        if (!_bridge.TryRead(out var now))
+        long nowTick = Environment.TickCount64;
+        if (_bridge.TryRead(out var native))
         {
-            _bridgeFound = false;
+            long sampleAge = nowTick - native.TickMs;
+            _bridgeAgeMs = sampleAge;
+            // The reader holds the mapping open even if Foobar exits, so
+            // samples can otherwise remain frozen forever. Release a stale
+            // handle to permit a new Foobar bridge mapping to be published.
+            if (PlaybackClockHealth.Fresh(nowTick, native.TickMs))
+            {
+                _bridgeFound = true;
+                _bridgeWasStale = false;
+                _clockUsable = true;
+                _clockSource = "Foobar bridge";
+                _playerState = native.State;
+                _durationMs = native.DurationMs > 0 ? (long)native.DurationMs : 0;
+                long age = Math.Clamp(sampleAge, 0L, 350L);
+                _positionMs = (long)native.PositionMs +
+                    (native.State == 1 ? age : 0);
+                if (_durationMs > 0) _positionMs = Math.Min(_positionMs, _durationMs);
+                return;
+            }
+            _bridgeWasStale = true;
+            _bridge.Dispose();
+        }
+        _bridgeFound = false;
+
+        // Graceful fallback to the Windows session *only if* it has a
+        // meaningful, dated position. Foobar may expose titles through GSMTC
+        // without exposing ANY timeline; never simulate a position from
+        // song start just because the session says "playing".
+        _playerState = _windowsState;
+        if (_windowsTimelineValid &&
+            nowTick >= _windowsSampleTick &&
+            nowTick - _windowsSampleTick <= 4000)
+        {
+            _clockUsable = true;
+            _clockSource = "Windows media timeline";
+            _durationMs = _windowsDurationMs;
+            long age = Math.Clamp(nowTick - _windowsSampleTick, 0, 2500);
+            _positionMs = _windowsPositionMs +
+                (_windowsState == 1 ? age : 0);
+            if (_durationMs > 0) _positionMs = Math.Min(_positionMs, _durationMs);
             return;
         }
-        // The Foobar bridge publishes a direct sample ~every 100ms.
-        // Extrapolate only between samples; paused time is held constant.
-        _bridgeFound = true;
-        _playerState = now.State;
-        _durationMs = now.DurationMs > 0 ? (long)now.DurationMs : 0;
-        long age = Math.Clamp(Environment.TickCount64 - now.TickMs, 0, 350);
-        _positionMs = (long)now.PositionMs + (now.State == 1 ? age : 0);
-        if (_durationMs > 0) _positionMs = Math.Min(_positionMs, _durationMs);
+        _clockUsable = false;
+        _clockSource = _bridgeWasStale
+            ? "Foobar bridge stale · restart foobar2000"
+            : "No playback clock · check Foobar bridge";
+        _positionMs = 0;
+        _durationMs = 0;
+    }
+
+    private void CaptureWindowsTimeline(
+        GlobalSystemMediaTransportControlsSession session)
+    {
+        var info = session.GetPlaybackInfo();
+        _windowsState = info.PlaybackStatus switch
+        {
+            GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing => 1,
+            GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused => 2,
+            _ => 0
+        };
+        var timeline = session.GetTimelineProperties();
+        _windowsTimelineValid = false;
+        if (timeline.LastUpdatedTime.Year < 2000) return;
+        double ms = timeline.Position.TotalMilliseconds;
+        double durationMs = timeline.EndTime > timeline.StartTime
+            ? (timeline.EndTime - timeline.StartTime).TotalMilliseconds
+            : timeline.EndTime.TotalMilliseconds;
+        if (!double.IsFinite(ms) || ms < 0 ||
+            !double.IsFinite(durationMs) || durationMs < 0 ||
+            (durationMs <= 0 && ms <= 0)) return;
+        double ageMs = Math.Max(0,
+            (DateTimeOffset.UtcNow - timeline.LastUpdatedTime).TotalMilliseconds);
+        if (!double.IsFinite(ageMs) || ageMs > 24 * 3600_000) return;
+        _windowsDurationMs = (long)durationMs;
+        _windowsPositionMs = (long)(ms +
+            (_windowsState == 1 ? ageMs : 0));
+        if (_windowsDurationMs > 0)
+            _windowsPositionMs = Math.Min(_windowsPositionMs, _windowsDurationMs);
+        _windowsSampleTick = Environment.TickCount64;
+        _windowsTimelineValid = true;
+    }
+
+    private string BuildDiagnostics()
+    {
+        var frame = CurrentFrame();
+        string active = frame.ActiveIndex >= 0 &&
+            frame.ActiveIndex < frame.Lines.Count
+            ? $"Line {frame.ActiveIndex + 1}/{frame.Lines.Count} " +
+              $"(starts at {Clock(frame.Lines[frame.ActiveIndex].AtMs)})"
+            : $"None active yet ({frame.Lines.Count} lines loaded)";
+        string native = _bridgeFound
+            ? $"Connected, sample age {_bridgeAgeMs} ms"
+            : _bridgeWasStale
+                ? $"STALE — latest sample age {_bridgeAgeMs} ms"
+                : "Not connected / unreadable";
+        return "PLAYBACK TIMING (live)\n" +
+            $"Playback status: {StateText()}\n" +
+            $"Clock: {_clockSource}\n" +
+            $"Current position: {(_clockUsable ? Clock(_positionMs) : "UNAVAILABLE")}\n" +
+            $"Duration: {(_clockUsable ? Clock(_durationMs) : "UNAVAILABLE")}\n" +
+            $"Native Foobar bridge: {native}\n" +
+            $"Windows media timeline: {(_windowsTimelineValid ? "Available" : "Not published")}\n" +
+            $"Active lyric: {active}\n\n" +
+            "If the position is unavailable, check Foobar2000 → " +
+            "Preferences → Components for 'Melisma Foobar2000 Bridge' " +
+            "and restart Foobar2000 if needed.\n\n" +
+            "LYRIC SOURCE DETAILS\n" + _lookupReport;
     }
 
     private async Task PollMediaAsync()
@@ -253,8 +374,16 @@ internal sealed class LyricsController : Form
                 s.SourceAppUserModelId.Contains("foobar", StringComparison.OrdinalIgnoreCase));
             if (session == null)
             {
+                _windowsState = 0;
+                _windowsTimelineValid = false;
                 _notice = "Waiting for Foobar2000. Start playing a song.";
                 return;
+            }
+            try { CaptureWindowsTimeline(session); }
+            catch (Exception ex) when (ex is InvalidOperationException or
+                        System.Runtime.InteropServices.COMException)
+            {
+                _windowsTimelineValid = false;
             }
             var props = await session.TryGetMediaPropertiesAsync();
             if (props == null) return;
@@ -373,8 +502,13 @@ internal sealed class LyricsController : Form
     {
         string text = $"Lyrics delay: {_offsetMs:+0;-0;0} ms" +
             (_song.Length > 0
-                ? $" ({(_offsetSaved ? "saved for this song" : "not saved")})"
-                : "");
+                ? $" ({(_offsetSaved ? "saved" : "not saved")})"
+                : "") +
+            (_clockUsable
+                ? $"   |   Playback: {Clock(_positionMs)} / " +
+                  $"{(_durationMs > 0 ? Clock(_durationMs) : "??:??")} " +
+                  $"· {StateText()} · {_clockSource}"
+                : $"   |   ⚠ Playback position UNAVAILABLE · {_clockSource}");
         if (_infoLabel.Text != text) _infoLabel.Text = text;
     }
 
