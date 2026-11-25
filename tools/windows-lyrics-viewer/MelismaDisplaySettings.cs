@@ -139,7 +139,12 @@ internal sealed class MelismaDisplaySettingsForm : Form
         Number(background, "Background transition", (decimal)artwork.FadeSeconds,
             1, 10, 0.2m, 1,
             value => artwork.FadeSeconds = (float)value, "seconds");
+        Number(background, "Cover art transition", (decimal)artwork.CoverFadeSeconds,
+            1, 10, 0.2m, 1,
+            value => artwork.CoverFadeSeconds = (float)value, "seconds");
         Note(background,
+            "Background transition changes the full-screen art; Cover art " +
+            "transition changes the separate Cinema album cover, independently. " +
             "Living and Living (classic) use lightweight Windows renderings " +
             "based on the selected cover's colours. Auto currently selects Living. " +
             "Artist falls back to Cover art until a separate artist-image source is added. " +
