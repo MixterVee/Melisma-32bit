@@ -65,7 +65,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Melisma Universal Windows v0.5";
+        Text = "Melisma Universal · Windows v0.5.1";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -667,7 +667,15 @@ internal static class LrcParser
     }
 }
 
-internal sealed record AlbumArtOptions(bool Enabled, float FadeSeconds);
+// Property initializers are important: existing v0.5 album-art.json files
+// have only Enabled and FadeSeconds. CoverFadeSeconds defaults to the
+// previously hard-coded 3.4s when that setting is missing.
+internal sealed class AlbumArtOptions
+{
+    public bool Enabled { get; set; } = true;
+    public float FadeSeconds { get; set; } = 4f;
+    public float CoverFadeSeconds { get; set; } = 3.4f;
+}
 
 internal sealed class AlbumArtworkState : IDisposable
 {
@@ -679,11 +687,12 @@ internal sealed class AlbumArtworkState : IDisposable
     private Bitmap? _current;
     private long _transitionTick = Environment.TickCount64;
     public bool Enabled { get; set; } = true;
-    public float FadeSeconds { get; set; } = 4;
+    public float FadeSeconds { get; set; } = 4f;
+    public float CoverFadeSeconds { get; set; } = 3.4f;
     public Image? Previous => _previous;
     public Image? Current => _current;
     public float Progress => ProgressFor(FadeSeconds);
-    public float PanelProgress => ProgressFor(3.4f);
+    public float PanelProgress => ProgressFor(CoverFadeSeconds);
     private float ProgressFor(float seconds) => Math.Clamp(
         (Environment.TickCount64 - _transitionTick) /
             (Math.Max(1f, seconds) * 1000f), 0f, 1f);
@@ -696,7 +705,10 @@ internal sealed class AlbumArtworkState : IDisposable
             var saved = JsonSerializer.Deserialize<AlbumArtOptions>(File.ReadAllText(_path));
             if (saved == null) return;
             Enabled = saved.Enabled;
-            FadeSeconds = Math.Clamp(saved.FadeSeconds, 1, 10);
+            FadeSeconds = float.IsFinite(saved.FadeSeconds)
+                ? Math.Clamp(saved.FadeSeconds, 1f, 10f) : 4f;
+            CoverFadeSeconds = float.IsFinite(saved.CoverFadeSeconds)
+                ? Math.Clamp(saved.CoverFadeSeconds, 1f, 10f) : 3.4f;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
@@ -711,7 +723,12 @@ internal sealed class AlbumArtworkState : IDisposable
             Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
             string temp = _path + ".tmp";
             File.WriteAllText(temp, JsonSerializer.Serialize(
-                new AlbumArtOptions(Enabled, FadeSeconds)));
+                new AlbumArtOptions
+                {
+                    Enabled = Enabled,
+                    FadeSeconds = FadeSeconds,
+                    CoverFadeSeconds = CoverFadeSeconds
+                }));
             File.Move(temp, _path, true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -1082,7 +1099,7 @@ internal sealed class LyricsCanvas : Control
 
         if (_artwork.Enabled)
         {
-            float fade = _artwork.PanelProgress; // Independent 3.4 s cover-panel fade.
+            float fade = _artwork.PanelProgress; // Independent, adjustable cover-panel fade.
             if (_artwork.Previous != null && fade < 1f)
                 DrawCover(g, _artwork.Previous, 1f - fade, coverBox);
             if (_artwork.Current != null && fade > 0f)
