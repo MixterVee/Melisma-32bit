@@ -20,6 +20,7 @@
     <Compile Include="../LyricsInterlude.cs" Link="LyricsInterlude.cs" />
     <Compile Include="../LyricPreviewMotion.cs" Link="LyricPreviewMotion.cs" />
     <Compile Include="../CoverFade.cs" Link="CoverFade.cs" />
+    <Compile Include="../NativeArtworkReader.cs" Link="NativeArtworkReader.cs" />
     <Compile Include="InterludeAndArtworkTests.cs" />
     <Compile Include="ActiveWordPulseTests.cs" />
     <Compile Include="ProviderProgressTests.cs" />
