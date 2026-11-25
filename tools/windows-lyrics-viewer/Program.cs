@@ -28,7 +28,8 @@ internal sealed record LrcWord(long AtMs, string Text, long EndMs = -1);
 internal sealed record LrcLine(long AtMs, string Text, IReadOnlyList<LrcWord>? Words = null);
 internal sealed record LyricFrame(
     IReadOnlyList<LrcLine> Lines, int ActiveIndex,
-    string Song, string Artist, string Message, long LyricPositionMs);
+    string Song, string Artist, string Message, long LyricPositionMs,
+    string Source);
 
 internal sealed class LyricsController : Form
 {
@@ -54,6 +55,7 @@ internal sealed class LyricsController : Form
     private readonly List<LrcLine> _lines = new();
     private string _song = "", _artist = "", _album = "";
     private string _source = "No lyrics loaded";
+    private string _lookupReport = "No lookup has been run yet.";
     private string _notice = "Start playing an MP3 in Foobar2000.";
     private long _positionMs;
     private long _durationMs;
@@ -68,7 +70,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.1";
+        Text = "Melisma Universal · Windows v0.6.2";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -143,6 +145,11 @@ internal sealed class LyricsController : Form
         var openCover = Button("Open cover image", 162);
         openCover.Click += OpenCoverImage;
         extraControls.Controls.Add(openCover);
+        var lookupDetails = Button("Source details…", 144);
+        lookupDetails.Click += (_, _) => MessageBox.Show(this, _lookupReport,
+            "Melisma · Lyrics source diagnostics",
+            MessageBoxButtons.OK, MessageBoxIcon.Information);
+        extraControls.Controls.Add(lookupDetails);
         var note = Label(9.5f, Color.FromArgb(175, 188, 204));
         note.Text = "Lyrics / Cinema · Background · Lyrics display";
         note.Width = 400;
@@ -267,6 +274,8 @@ internal sealed class LyricsController : Form
             _offsetSaved = true;
             UpdateDelayLabel();
             _lines.Clear();
+            _lookupReport = "Waiting for provider responses for " +
+                title + " — " + artist + "…";
             _source = "Looking up time-synced lyrics";
             _notice = "Fetching synced lyrics for " + title + "…";
             _searchCancellation?.Cancel();
@@ -380,7 +389,7 @@ internal sealed class LyricsController : Form
         }
         return new LyricFrame(_lines, current,
             _song.Length > 0 ? _song : "Melisma Karaoke",
-            _artist, _notice, lyricMs);
+            _artist, _notice, lyricMs, _source);
     }
 
     private void ToggleSecondScreen(object? sender, EventArgs e)
@@ -446,9 +455,13 @@ internal sealed class LyricsController : Form
     {
         if (_song.Length == 0 || _artist.Length == 0)
         {
-            _notice = "Play a tagged MP3 in Foobar2000 first (title and artist required).";
+            _lookupReport = $"Media metadata is incomplete.\nTitle: {_song}\nArtist: {_artist}\n" +
+                "Foobar2000 must publish both title and artist via Windows media sessions.";
+            _notice = "Play a tagged MP3 in Foobar2000 (title and artist required).";
+            _statusLabel.Text = "Lyrics lookup unavailable · Missing media metadata";
             return;
         }
+
         _searchCancellation?.Cancel();
         _searchCancellation?.Dispose();
         var cancellation = new CancellationTokenSource();
@@ -460,90 +473,66 @@ internal sealed class LyricsController : Form
         var album = _album;
         var duration = _durationMs;
         _source = "Searching lyrics";
-        _statusLabel.Text = "Searching genuine word timings · AMLL TTML";
-        _notice = requested ? "Looking for improved word-synced lyrics…" :
-            "Checking AMLL TTML for word-by-word lyrics…";
+        _statusLabel.Text = "Checking lrc.red, AMLL, Better Lyrics and LRCLIB…";
+        _notice = requested ? "Checking all lyric sources again…" :
+            "Finding the best real word-timed lyrics…";
+        _lookupReport = $"Song: {title}\nArtist: {artist}\nAlbum: {album}\n" +
+            $"Foobar bridge duration: {duration / 1000d:F1}s\n" +
+            "Providers: checking concurrently…";
         try
         {
-            // One account-free lookup; strict title/artist match. If the
-            // volunteer service is unavailable or has no genuine word timing,
-            // fall back to the existing reliable line-synced LRCLIB path.
-            try
-            {
-                var wordLines = await AmllWordProvider.FindAsync(
-                    Client, title, artist, token);
-                if (token.IsCancellationRequested || searchFor != _loadedFor ||
-                    IsDisposed) return;
-                if (wordLines is { Count: > 0 })
+            // Android Melisma's LyricsRepository asks enabled providers in
+            // parallel, chooses genuine word timing first, and retains failure
+            // reasons per source. Never make a volunteer provider's timeout
+            // prevent an unrelated provider's successful answer.
+            var lookup = await LyricsSourceOrchestrator.QueryAsync(Client,
+                title, artist, album, duration,
+                async ct =>
                 {
-                    _lines.Clear();
-                    _lines.AddRange(wordLines);
-                    _source = "AMLL TTML DB · word timed";
-                    _statusLabel.Text = "Word-synced · AMLL TTML DB";
-                    _notice = $"{wordLines.Count} lines · real syllable/word timing. " +
-                        "Pause and seek in Foobar2000 to test.";
-                    return;
-                }
-            }
-            catch (OperationCanceledException) { throw; }
-            catch (Exception ex) when (ex is HttpRequestException
-                        or TaskCanceledException or JsonException
-                        or System.Xml.XmlException or InvalidOperationException)
-            {
-                // Best effort: a single provider outage cannot stop lyrics.
-            }
+                    var synced = await Lrclib.FindAsync(
+                        title, artist, album, duration, ct);
+                    return synced == null ? null : LrcParser.Parse(synced);
+                }, token);
+            if (token.IsCancellationRequested || IsDisposed ||
+                searchFor != _loadedFor) return;
 
-            _statusLabel.Text = "Searching word timings · Better Lyrics (TTML / QQ)";
-            _notice = "Checking another word-timed source before line fallback…";
-            var alternative = await BetterLyricsWordProvider.FindAsync(
-                Client, title, artist, album, duration, token);
-            if (token.IsCancellationRequested || searchFor != _loadedFor || IsDisposed)
-                return;
-            if (alternative.HasValue)
-            {
-                _lines.Clear();
-                _lines.AddRange(alternative.Value.Lines);
-                _source = alternative.Value.Source;
-                _statusLabel.Text = "Word-synced · " + alternative.Value.Source;
-                _notice = $"{alternative.Value.Lines.Count} lines with real word timestamps.";
-                return;
-            }
-
-            _statusLabel.Text = "Line-synced fallback · LRCLIB";
-            _notice = "No matching word-timed lyrics. Checking LRCLIB…";
-            // The API recommends sequential requests and short delays to
-            // respect rate limits.
-            await Task.Delay(350, token);
-            string? synced = await Lrclib.FindAsync(title, artist, album, duration, token);
-            if (token.IsCancellationRequested || searchFor != _loadedFor || IsDisposed) return;
-            var lines = synced == null ? new List<LrcLine>() : LrcParser.Parse(synced);
-            if (lines.Count == 0)
+            _lookupReport = $"Foobar2000 metadata:\n" +
+                $"Title: {title}\nArtist: {artist}\nAlbum: {album}\n" +
+                $"Duration: {duration / 1000d:F1} seconds\n\n" +
+                "Sources checked (parallel, 12s each):\n" + lookup.Report +
+                "\n\nSelected: " + (lookup.Best?.Name ?? "No timed lyrics available") +
+                "\n\nOnly genuine source timestamps are used. " +
+                "A provider can return no match or be unreachable.";
+            if (lookup.Best is not { Lines: { Count: > 0 } })
             {
                 _source = "No synchronized lyrics found";
-                _statusLabel.Text = "No lyric match · Local TTML/LRC supported";
-                _notice = "No timed lyrics found. Try Open lyrics file or another song.";
+                _statusLabel.Text = "No timed lyrics found · Open Source details…";
+                _notice = "No lyrics available from these sources. See Source details…";
+                return;
             }
-            else
-            {
-                _lines.Clear();
-                _lines.AddRange(lines);
-                bool wordTimed = WordTimedLyrics.HasWordTimings(lines);
-                _source = "LRCLIB · synchronized LRC";
-                _statusLabel.Text = wordTimed ? "Word-synced · LRCLIB enhanced LRC" :
-                    "Line-synced · LRCLIB (no word timestamps)";
-                _notice = wordTimed ?
-                    $"{lines.Count} lines with genuine word timestamps." :
-                    $"{lines.Count} line-timed lyrics. Word highlight needs genuine word-timed source.";
-            }
+
+            var best = lookup.Best;
+            _lines.Clear();
+            _lines.AddRange(best.Lines);
+            _source = best.Id == "lrcred" ? "lrc.red" : best.Name;
+            string timing = best.WordTimed ? "Word-synced" : "Line-synced";
+            _statusLabel.Text = $"{timing} · {best.Name}";
+            _notice = best.WordTimed
+                ? $"{best.Total} lines, {best.Timed} with real word timing · " +
+                  "Pause/seek Foobar2000 to verify."
+                : $"{best.Total} line-timed lyrics; see Source details… " +
+                  "for the other providers.";
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
             if (!IsDisposed && !token.IsCancellationRequested)
             {
-                _source = "Lookup unavailable";
-                _statusLabel.Text = "Lyrics lookup unavailable · Local files supported";
-                _notice = "Lyrics lookup: " + ex.Message + " · Try Open lyrics file";
+                _source = "Lyrics lookup unavailable";
+                _statusLabel.Text = "Lyrics lookup failed · Source details…";
+                _notice = "A source lookup failed: " + ex.Message;
+                _lookupReport += "\n\nLookup error: " +
+                    ex.GetType().Name + ": " + ex.Message;
             }
         }
     }
@@ -552,7 +541,7 @@ internal sealed class LyricsController : Form
     {
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd(
-            "MelismaWindows/0.6.1 (Windows; https://github.com/MixterVee/Melisma-32bit)");
+            "MelismaWindows/0.6.2 (Windows; https://github.com/MixterVee/Melisma-32bit)");
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         return client;
     }
@@ -1037,7 +1026,21 @@ internal sealed class LyricsCanvas : Control
                 playedCharacters, emphasis, edgeOpacity);
         }
         g.Restore(textClip);
+        DrawSourceCredit(g, frame);
         DrawIdleTakeover(g);
+    }
+
+    private void DrawSourceCredit(Graphics g, LyricFrame frame)
+    {
+        // lrc.red requires visible attribution and a link to its source.
+        if (!frame.Source.Equals("lrc.red", StringComparison.OrdinalIgnoreCase)) return;
+        using var font = new Font("Segoe UI", 9.5f);
+        using var brush = new SolidBrush(Color.FromArgb(210, 216, 225, 236));
+        using var align = new StringFormat { Alignment = StringAlignment.Center };
+        var area = LyricsArea;
+        g.DrawString("Lyrics: lrc.red · https://lrc.red",
+            font, brush, new RectangleF(area.Left, Height - 27f,
+                area.Width, 22f), align);
     }
 
     // Drawn LAST, outside the lyric-column clip. This is a screensaver,
