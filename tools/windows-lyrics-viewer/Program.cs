@@ -29,7 +29,7 @@ internal sealed record LrcLine(long AtMs, string Text, IReadOnlyList<LrcWord>? W
 internal sealed record LyricFrame(
     IReadOnlyList<LrcLine> Lines, int ActiveIndex,
     string Song, string Artist, string Message, long LyricPositionMs,
-    string Source);
+    string Source, string? PlainLyrics = null);
 
 internal sealed class LyricsController : Form
 {
@@ -54,6 +54,8 @@ internal sealed class LyricsController : Form
     private KaraokeDisplay? _projection;
     private bool _mediaBusy;
     private readonly List<LrcLine> _lines = new();
+    private string _plainLyrics = "";
+    private readonly HashSet<string> _upgradedCacheThisSession = new(StringComparer.Ordinal);
     private string _song = "", _artist = "", _album = "";
     private string _source = "No lyrics loaded";
     private string _lookupReport = "No lookup has been run yet.";
@@ -86,7 +88,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.9";
+        Text = "Melisma Universal · Windows v0.6.10";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -189,18 +191,30 @@ internal sealed class LyricsController : Form
         {
             ReadBridge();
             _idleBackground.Update(_playerState == 1, _display);
-            // Show an independently verifiable position in the controller.
-            // Without this, cached lyrics look frozen when the bridge is
-            // unavailable, and nobody can tell whether time is advancing.
             long now = Environment.TickCount64;
             if (now - _lastClockLabelTick >= 400)
             {
                 _lastClockLabelTick = now;
                 UpdateDelayLabel();
             }
-            _preview.Invalidate();
+
+            // Android uses a fast tick only while it has moving lyrics.
+            // The older unconditional 25ms loop repainted full cover art
+            // and Living effects even for silence, paused music and misses.
+            var current = CurrentFrame();
+            bool timedWord = _playerState == 1 && current.ActiveIndex >= 0 &&
+                current.ActiveIndex < current.Lines.Count &&
+                current.Lines[current.ActiveIndex].Words is { Count: > 0 } &&
+                (_display.GrowActiveWord || _display.SmoothWordFill);
+            int interval = timedWord ? 25 :
+                _playerState == 1 && current.Lines.Count > 0 ? 65 :
+                _playerState == 1 ? 75 : 120;
+            if (_screenTimer.Interval != interval) _screenTimer.Interval = interval;
+
+            if (WindowState != FormWindowState.Minimized && _preview.Visible)
+                _preview.Invalidate();
+            // Single shared paint clock: the TV must not paint twice.
             _projection?.Redraw();
-            // Avoid invalidating labels with identical text every frame.
             if (hint.Text != _notice) hint.Text = _notice;
         };
         _mediaTimer.Tick += async (_, _) => await PollMediaAsync();
@@ -411,6 +425,7 @@ internal sealed class LyricsController : Form
             _offsetSaved = true;
             UpdateDelayLabel();
             _lines.Clear();
+            _plainLyrics = "";
             _lookupReport = "Waiting for provider responses for " +
                 title + " — " + artist + "…";
             _source = "Looking up time-synced lyrics";
@@ -582,7 +597,7 @@ internal sealed class LyricsController : Form
         }
         return new LyricFrame(_lines, current,
             _song.Length > 0 ? _song : "Melisma Karaoke",
-            _artist, _notice, lyricMs, _source);
+            _artist, _notice, lyricMs, _source, _plainLyrics);
     }
 
     private void ToggleSecondScreen(object? sender, EventArgs e)
@@ -646,12 +661,13 @@ internal sealed class LyricsController : Form
 
     private async Task LoadLyricsAsync(bool requested)
     {
-        if (_song.Length == 0 || _artist.Length == 0)
+        // Android's LyricsRequest.isUsable only requires a title.
+        // A missing artist reduces confidence, but should not block all lookup.
+        if (_song.Length == 0)
         {
-            _lookupReport = $"Media metadata is incomplete.\nTitle: {_song}\nArtist: {_artist}\n" +
-                "Foobar2000 must publish both title and artist via Windows media sessions.";
-            _notice = "Play a tagged MP3 in Foobar2000 (title and artist required).";
-            _statusLabel.Text = "Lyrics lookup unavailable · Missing media metadata";
+            _lookupReport = "Foobar2000 has not published a track title.";
+            _notice = "Waiting for a title from Foobar2000.";
+            _statusLabel.Text = "Lyrics lookup unavailable · Missing title";
             return;
         }
 
@@ -666,7 +682,7 @@ internal sealed class LyricsController : Form
         var album = _album;
         var duration = _durationMs;
         _source = "Searching lyrics";
-        _statusLabel.Text = "Checking lrc.red, AMLL, Better Lyrics and LRCLIB…";
+        _statusLabel.Text = "Checking lyric providers…";
         _notice = requested ? "Checking all lyric sources again…" :
             "Finding the best real word-timed lyrics…";
         _lookupReport = $"Song: {title}\nArtist: {artist}\nAlbum: {album}\n" +
@@ -688,18 +704,24 @@ internal sealed class LyricsController : Form
         {
             _lines.Clear();
             _lines.AddRange(cached.Lines);
-            _source = cached.SourceId == "lrcred" ? "lrc.red" :
-                cached.SourceName;
+            _plainLyrics = cached.PlainLyrics ?? "";
+            _source = cached.SourceId == "lrcred" ? "lrc.red" : cached.SourceName;
             firstDisplayMs = 0;
             shownSource = "cache:" + cached.SourceId;
             shownName = cached.SourceName;
             shownCount = cached.Lines.Count;
-            _statusLabel.Text = cached.WordTimed
-                ? "Word-synced · Cached " + cached.SourceName
-                : "Line-synced · Cached " + cached.SourceName;
-            _notice = $"{cached.Lines.Count} saved lyrics ready · checking for updates";
+            _statusLabel.Text = cached.WordTimed ? "Word-synced · Cached " + cached.SourceName
+                : cached.Lines.Count > 0 ? "Line-synced · Cached " + cached.SourceName
+                : "Plain lyrics · Cached " + cached.SourceName;
+            _notice = "Lyrics loaded immediately from disk";
+            _lookupReport = "Immediately displayed stored lyrics from " + cached.SourceName +
+                ".\nAndroid-style cache: no fresh search required for word timing.";
             _preview.Invalidate();
             _projection?.Redraw();
+            // Android does not hammer every provider on every replay.
+            // Background improvement for lower-tier results is attempted
+            // just once per running session, never before showing the cache.
+            if (cached.WordTimed || !_upgradedCacheThisSession.Add(searchFor)) return;
         }
 
         bool CurrentSearch() =>
@@ -728,6 +750,7 @@ internal sealed class LyricsController : Form
                 // real word timing, or fill a missing first verse.
                 _lines.Clear();
                 _lines.AddRange(best!.Lines!);
+                _plainLyrics = "";
                 cached = null;
                 shownSource = best.Id;
                 shownName = best.Name;
@@ -754,11 +777,16 @@ internal sealed class LyricsController : Form
 
             if (!hasLines)
             {
-                if (complete && cached == null)
+                if (complete && cached == null && _lines.Count == 0)
                 {
-                    _source = "No synchronized lyrics found";
-                    _statusLabel.Text = "No timed lyrics found · Sources…";
-                    _notice = "No timed lyrics from these sources. See Sources…";
+                    _source = _plainLyrics.Length > 0 ? "LRCLIB plain lyrics"
+                        : "No synchronized lyrics found";
+                    _statusLabel.Text = _plainLyrics.Length > 0
+                        ? "Plain lyrics · No synchronized timestamps"
+                        : "No synchronized lyrics found · Sources…";
+                    _notice = _plainLyrics.Length > 0
+                        ? "Plain lyrics are available (no word timing)"
+                        : "No matching timed lyrics. Check Sources… for the reason.";
                 }
                 return;
             }
@@ -794,7 +822,19 @@ internal sealed class LyricsController : Form
                 async ct =>
                 {
                     var synced = await Lrclib.FindAsync(
-                        title, artist, album, duration, ct);
+                        title, artist, album, duration, ct, plain =>
+                        {
+                            if (!CurrentSearch() || _lines.Count > 0 ||
+                                string.IsNullOrWhiteSpace(plain)) return;
+                            _plainLyrics = plain;
+                            _source = "LRCLIB plain lyrics";
+                            _statusLabel.Text = "Plain lyrics · Seeking timed lyrics";
+                            _notice = "Showing plain lyrics while other sources are checked";
+                            _preview.Invalidate();
+                            _projection?.Redraw();
+                            if (!requested)
+                                _lyricCache.SavePlain(title, artist, album, duration, plain);
+                        });
                     return synced == null ? null : LrcParser.Parse(synced);
                 }, token, partial => Present(partial, complete: false));
             Present(lookup, complete: true);
@@ -823,7 +863,7 @@ internal sealed class LyricsController : Form
     {
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd(
-            "MelismaWindows/0.6.8 (Windows; https://github.com/MixterVee/Melisma-32bit)");
+            "MelismaWindows/0.6.10 (Windows; https://github.com/MixterVee/Melisma-32bit)");
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         return client;
     }
@@ -2149,7 +2189,7 @@ internal sealed class LyricsCanvas : Control
 internal sealed class KaraokeDisplay : Form
 {
     private readonly LyricsCanvas _canvas;
-    private readonly System.Windows.Forms.Timer _timer = new() { Interval = 25 };
+    // Driven by the controller's adaptive render clock, not a second timer.
 
     public KaraokeDisplay(Screen screen, Func<LyricFrame> frame, AlbumArtworkState artwork,
         MelismaDisplaySettings display, PlaybackIdleBackground idleBackground)
@@ -2163,9 +2203,7 @@ internal sealed class KaraokeDisplay : Form
         _canvas = new LyricsCanvas(frame, artwork, display, idleBackground) { Dock = DockStyle.Fill };
         Controls.Add(_canvas);
         KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) Close(); };
-        _timer.Tick += (_, _) => _canvas.Invalidate();
-        Shown += (_, _) => _timer.Start();
-        FormClosed += (_, _) => { _timer.Stop(); _timer.Dispose(); };
+        // One refresh per controller tick, avoiding duplicate TV paints.
     }
     public void Redraw() { if (!IsDisposed) _canvas.Invalidate(); }
 }
