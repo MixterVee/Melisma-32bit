@@ -68,7 +68,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6";
+        Text = "Melisma Universal · Windows v0.6.1";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -493,6 +493,22 @@ internal sealed class LyricsController : Form
                 // Best effort: a single provider outage cannot stop lyrics.
             }
 
+            _statusLabel.Text = "Searching word timings · Better Lyrics (TTML / QQ)";
+            _notice = "Checking another word-timed source before line fallback…";
+            var alternative = await BetterLyricsWordProvider.FindAsync(
+                Client, title, artist, album, duration, token);
+            if (token.IsCancellationRequested || searchFor != _loadedFor || IsDisposed)
+                return;
+            if (alternative.HasValue)
+            {
+                _lines.Clear();
+                _lines.AddRange(alternative.Value.Lines);
+                _source = alternative.Value.Source;
+                _statusLabel.Text = "Word-synced · " + alternative.Value.Source;
+                _notice = $"{alternative.Value.Lines.Count} lines with real word timestamps.";
+                return;
+            }
+
             _statusLabel.Text = "Line-synced fallback · LRCLIB";
             _notice = "No matching word-timed lyrics. Checking LRCLIB…";
             // The API recommends sequential requests and short delays to
@@ -536,7 +552,7 @@ internal sealed class LyricsController : Form
     {
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd(
-            "MelismaWindows/0.6 (Windows; https://github.com/MixterVee/Melisma-32bit)");
+            "MelismaWindows/0.6.1 (Windows; https://github.com/MixterVee/Melisma-32bit)");
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         return client;
     }
