@@ -91,7 +91,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.11";
+        Text = "Melisma Universal · Windows v0.6.12";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -1313,6 +1313,9 @@ internal sealed class LyricsCanvas : Control
     private int _lastActive = int.MinValue;
     private int _transitionFrom = -1;
     private long _transitionTick;
+    private int _previewedIndex = -1;
+    private string _revealedDocumentKey = "";
+    private long _revealTick;
     // Layout belongs to the song and viewport, never to the highlighted
     // line. Pre-layout all lines at full-size before they scroll into view.
     private readonly List<TextLayout> _planned = new();
@@ -1385,6 +1388,8 @@ internal sealed class LyricsCanvas : Control
             ClearPlan();
             _lastActive = int.MinValue;
             _transitionFrom = -1;
+            _previewedIndex = -1;
+            _revealedDocumentKey = "";
             if (!string.IsNullOrWhiteSpace(frame.PlainLyrics))
                 DrawPlainLyrics(g, frame.PlainLyrics);
             else
@@ -1400,31 +1405,46 @@ internal sealed class LyricsCanvas : Control
             return;
         }
 
-        // Android Melisma inserts animated three-dot interludes in the intro
-        // and between vocal lines when there are at least 3000ms of silence.
-        // These are computed from lyric timestamps (and hidden 500ms early),
-        // so a seek or pause immediately lands on the correct visual state.
-        if (LyricsInterlude.At(frame.Lines, frame.LyricPositionMs) != null)
-        {
-            DrawBouncingDots(g, frame.LyricPositionMs);
-            g.Restore(textClip);
-            DrawSourceCredit(g, frame);
-            DrawIdleTakeover(g);
-            return;
-        }
-
+        // Android displays upcoming lyric lines even during an instrumental
+        // introduction: the three dots are one row in its lyric layout, not
+        // a full-screen replacement for the text. Windows v0.6.9 mistakenly
+        // returned here, hiding ALL 57 lines until the first vocal timestamp.
         EnsurePlan(g, frame);
+
+        var interludeWindow = LyricsInterlude.Around(frame.Lines,
+            frame.LyricPositionMs);
+        bool inGap = interludeWindow.HasValue;
+        bool showDots = LyricsInterlude.At(frame.Lines,
+            frame.LyricPositionMs).HasValue;
+
+        // A successful cache/provider result becomes readable right away.
+        // Fade only the presentation; the actual lyric times stay unchanged.
+        string documentKey = frame.Song + "\u001f" + frame.Artist + "\u001f" +
+            frame.Lines.Count + "\u001f" + frame.Lines[0].AtMs +
+            "\u001f" + frame.Lines[^1].AtMs;
+        long paintTick = Environment.TickCount64;
+        if (_revealedDocumentKey != documentKey)
+        {
+            _revealedDocumentKey = documentKey;
+            _revealTick = paintTick;
+        }
+        float reveal = LyricPreviewMotion.Reveal(paintTick - _revealTick);
         int active = frame.ActiveIndex;
         if (active != _lastActive)
         {
-            _transitionFrom = _lastActive;
+            // If we spent the instrumental gap reading the incoming line,
+            // do not jump back to the previous line when singing begins.
+            _transitionFrom = active == _previewedIndex ? -1 : _lastActive;
             _lastActive = active;
-            _transitionTick = Environment.TickCount64;
+            _transitionTick = paintTick;
         }
 
-        int center = active < 0 ? 0 : active;
-        center = Math.Clamp(center, 0, _planned.Count - 1);
-        bool animate = active >= 0 && _transitionFrom >= 0 &&
+        int center = Math.Clamp(active < 0 ? 0 : active, 0, _planned.Count - 1);
+        int upcoming = inGap
+            ? LyricPreviewMotion.UpcomingIndex(active, _planned.Count) : -1;
+        if (upcoming >= 0) _previewedIndex = upcoming;
+        else if (active != _previewedIndex) _previewedIndex = -1;
+        bool animate = !inGap && active >= 0 && _transitionFrom >= 0 &&
                        Math.Abs(active - _transitionFrom) == 1;
         float progress = animate
             ? Math.Clamp((Environment.TickCount64 - _transitionTick) / 340f, 0f, 1f)
@@ -1435,9 +1455,18 @@ internal sealed class LyricsCanvas : Control
         // the viewport between those positions; never recalculate positions
         // when a line becomes highlighted or its rendered font grows.
         float anchor = _lineCenters[center];
-        if (animate)
+        if (inGap && upcoming >= 0 && active >= 0)
+        {
+            float ahead = LyricPreviewMotion.Ahead(
+                interludeWindow!.Value, frame.LyricPositionMs);
+            anchor = _lineCenters[center] +
+                (_lineCenters[upcoming] - _lineCenters[center]) * ahead;
+        }
+        else if (animate)
+        {
             anchor = _lineCenters[_transitionFrom] +
                 (_lineCenters[center] - _lineCenters[_transitionFrom]) * eased;
+        }
 
         for (int index = 0; index < _planned.Count; index++)
         {
@@ -1455,13 +1484,20 @@ internal sealed class LyricsCanvas : Control
             if (edgeOpacity <= 0f) continue;
             if (_controllerPreview) y = (float)Math.Round(y);
 
-            float emphasis = index == active ? eased :
+            // A line is not still being sung just because it was the last
+            // timestamp seen. In a true interlude it dims while the next
+            // (already visible) line stays legible but NOT cyan.
+            float emphasis = inGap ? 0f :
+                index == active ? eased :
                 animate && index == _transitionFrom ? 1f - eased : 0f;
-            var baseColor = index < active ? Color.FromArgb(158, 109, 133) : Other;
+            var baseColor = index < active || (inGap && index == active)
+                ? Color.FromArgb(158, 109, 133)
+                : inGap && index == upcoming
+                    ? Color.FromArgb(194, 207, 224) : Other;
             var color = Blend(baseColor, Highlight, emphasis);
             var line = frame.Lines[index];
             float? playedCharacters = null;
-            if (index == active && line.Words is { Count: > 0 } && progress >= 0.7f)
+            if (!inGap && index == active && line.Words is { Count: > 0 } && progress >= 0.7f)
             {
                 float count = 0f;
                 foreach (var word in line.Words)
@@ -1494,15 +1530,31 @@ internal sealed class LyricsCanvas : Control
             // Do not delay the beginning of word growth until 70% of the
             // line scroll animation: that gate suddenly switched from the
             // base font to the enlarged overlay mid-word (a visible pop).
-            AnimatedWord? animated = _display.GrowActiveWord &&
+            AnimatedWord? animated = _display.GrowActiveWord && !inGap &&
                 index == active
                     ? LocateAnimatedWord(layout, line, frame.LyricPositionMs)
                     : null;
             DrawLayout(g, layout, y, playedCharacters.HasValue ? Other : color,
-                playedCharacters, emphasis, edgeOpacity, animated);
+                playedCharacters, emphasis, edgeOpacity * reveal, animated);
             if (animated.HasValue)
                 DrawActiveWordOverlay(g, layout, y, line,
-                    animated.Value, emphasis, edgeOpacity);
+                    animated.Value, emphasis, edgeOpacity * reveal);
+        }
+
+        if (showDots && upcoming >= 0)
+        {
+            // Place the dots between the previewed line and the following
+            // row, not on top of the words the viewer is preparing to sing.
+            float previewY = Height * 0.50f + _lineCenters[upcoming] - anchor;
+            float room = upcoming + 1 < _planned.Count
+                ? (_lineCenters[upcoming + 1] - _lineCenters[upcoming]) * 0.5f
+                : Math.Clamp(Height / 7f, 34f, 65f);
+            float dotsY = previewY + Math.Clamp(room, 27f, 63f);
+            long remaining = interludeWindow!.Value.EndMs -
+                LyricsInterlude.PreHideMs - frame.LyricPositionMs;
+            float exitFade = Math.Clamp(remaining / 380f, 0f, 1f);
+            DrawBouncingDots(g, frame.LyricPositionMs, dotsY,
+                reveal * exitFade);
         }
         g.Restore(textClip);
         DrawSourceCredit(g, frame);
@@ -1545,7 +1597,8 @@ internal sealed class LyricsCanvas : Control
                     rect.Width, lineHeight), format);
     }
 
-    private void DrawBouncingDots(Graphics g, long clockMs)
+    private void DrawBouncingDots(Graphics g, long clockMs,
+        float? centerY = null, float fade = 1f)
     {
         // Three round dots rise in sequence. The animation is subtle enough
         // for a TV, yet legible in the controller's smaller preview.
@@ -1553,7 +1606,7 @@ internal sealed class LyricsCanvas : Control
         float radius = Math.Clamp(area.Width / 90f, 4.5f, 10.5f);
         float separation = radius * 3.5f;
         float left = area.Left + area.Width * 0.5f - separation;
-        float middle = area.Top + area.Height * 0.5f;
+        float middle = centerY ?? (area.Top + area.Height * 0.5f);
         float phase = (float)((clockMs % 1800 + 1800) % 1800) / 1800f;
         for (int i = 0; i < 3; i++)
         {
@@ -1561,7 +1614,8 @@ internal sealed class LyricsCanvas : Control
             wave *= wave * (3f - 2f * wave);
             float size = radius * (0.83f + 0.23f * wave);
             float y = middle - radius * 1.35f * wave;
-            int alpha = (int)(115f + 140f * wave);
+            int alpha = Math.Clamp((int)((115f + 140f * wave) *
+                Math.Clamp(fade, 0f, 1f)), 0, 255);
             using var brush = new SolidBrush(Color.FromArgb(alpha, Highlight));
             g.FillEllipse(brush, left + separation * i - size, y - size,
                 size * 2f, size * 2f);
