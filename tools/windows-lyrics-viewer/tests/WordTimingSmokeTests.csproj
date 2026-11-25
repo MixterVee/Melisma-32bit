@@ -14,6 +14,8 @@
     <Compile Include="../PlaybackClockHealth.cs" Link="PlaybackClockHealth.cs" />
     <Compile Include="../LyricCoverage.cs" Link="LyricCoverage.cs" />
     <Compile Include="../NetEaseWordProvider.cs" Link="NetEaseWordProvider.cs" />
+    <Compile Include="../LyricWordSpacing.cs" Link="LyricWordSpacing.cs" />
+    <Compile Include="WordSpacingTests.cs" />
     <Compile Include="../OnlineArtworkProvider.cs" Link="OnlineArtworkProvider.cs" />
     <Compile Include="AdditionalSourceTests.cs" />
     <Compile Include="ParserSmokeTests.cs" />
