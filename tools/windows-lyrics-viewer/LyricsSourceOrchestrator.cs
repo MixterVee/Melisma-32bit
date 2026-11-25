@@ -63,6 +63,16 @@ internal static class LyricsSourceOrchestrator
         }
     }
 
+    internal static int EffectiveTier(Answer answer, int fullest)
+    {
+        if (answer.Total == 0) return 0;
+        // Android's effectiveKind demotes word-timed fragments that have
+        // fewer than 60% as many lines as the most complete answer.
+        if (answer.WordTimed && (fullest == 0 ||
+            answer.Total >= fullest * 0.6f)) return 2;
+        return 1;
+    }
+
     internal static async Task<Lookup> QueryAsync(
         HttpClient http, string title, string artist, string album, long durationMs,
         Func<CancellationToken, Task<List<LrcLine>?>> lineFallback,
@@ -97,7 +107,7 @@ internal static class LyricsSourceOrchestrator
         int fullest = all.Max(a => a.Total);
         var best = all
             .Where(a => a.Total > 0)
-            .OrderByDescending(a => a.Tier)
+            .OrderByDescending(a => EffectiveTier(a, fullest))
             .ThenByDescending(a => fullest > 0 && a.Total >= fullest * 0.6)
             .ThenBy(a => preference[a.Id])
             .ThenByDescending(a => a.Total)
