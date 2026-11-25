@@ -1,4 +1,77 @@
-# Melisma Universal — Windows v0.5.4 (test build)
+# Melisma Universal — Windows v0.6 (test build)
+
+## New: genuine word-by-word lyric synchronization
+
+The Windows Foobar2000 viewer now automatically attempts **AMLL TTML DB**, the same
+account-free, community-timed provider used by Android Melisma. Only a strictly
+matched title+artist with real TTML word/syllable timestamps is accepted. When no
+genuine word-timed lyrics are available or the provider is offline, Windows falls
+back automatically to the proven **LRCLIB line-synchronized lyrics**.
+
+- **Real timestamps, not simulated timing**: uses each TTML word start/end
+  for syllable/word progression; if only onset times are provided, highlighting
+  steps forward on the real onset. Does not spread words artificially over a
+  line's duration.
+- **Smooth word fill**, enabled by default, gradually fills the current syllable
+  from its actual begin to end timestamp. Turn it off under
+  **Display settings → Lyrics display → Smooth word fill (real timestamps)**
+  for discrete word-by-word steps.
+- **Open lyrics file** now supports **TTML (.ttml/.xml)** and existing
+  **enhanced-LRC (.lrc)**. The parser accepts explicit word timings, nested
+  span groups, seconds/millisecond clock notation, and safe
+  fallback to line mode if a file lacks usable word timing.
+- The controller status shows **Word-synced · AMLL TTML DB** or
+  **Line-synced · LRCLIB (no word timestamps)**, so the viewer never pretends
+  ordinary line-timed lyrics are word-timed.
+- Plays, pauses, seeks, track changes and saved +100/-100ms per-song timing
+  all use the unchanged read-only Foobar2000 bridge. Accurate word highlighting
+  uses the **same corrected timeline** as the line highlighting.
+- New CI smoke tests cover real TTML word start/end timings, line-only
+  fallback, whitespace between timed spans, nested spans, onset-only tokens
+  and secure XML parsing. No internet or test song is needed for those tests.
+
+### How to test v0.6
+
+1. Keep v0.5.4 extracted separately. Download the
+   **Melisma-Universal-Windows-v0.6-x64** artifact and extract it to a new
+   folder. Leave the working Foobar2000 bridge installed.
+2. Start a tagged song in Foobar2000; v0.6 searches AMLL for word-timed
+   lyrics first. Watch the upper status strip:
+   **Word-synced** means a real timed match, while **Line-synced** is the
+   expected fallback for songs without such a match.
+3. For a word-timed match, watch words fill progressively within the active
+   cyan lyric line. Pause: it must freeze exactly; resume: it continues; seek:
+   progress jumps to the correct word. Adjust the existing +/-100ms controls
+   to correct a lyric file with consistent timing drift.
+4. For a line-synced song, confirm whole lines continue highlighting with no
+   fabricated word timing. This is **not an error**.
+5. To test independently of online coverage, click **Open lyrics file** and
+   load a properly word-timed .ttml file. The header should switch to
+   **Word-timed lyrics · Local file** if it contains enough genuine spans.
+6. Open **Display settings → Lyrics display** and toggle **Smooth word fill**.
+   With it off, the active word switches colour on its actual onset timestamp;
+   with it on, the timed word fills smoothly over its recorded duration.
+7. Test the laptop preview and extended-screen TV in Cinema and Lyrics layouts,
+   including long wrapped lyrics, and the Living idle screensaver. Verify
+   saved layout/background preferences and per-song offsets remain intact.
+
+### Availability and current limitations
+
+Word-by-word is available **only where the source genuinely contains word
+timestamps**. Not all AMLL records are the same recordings, and many popular
+tracks in LRCLIB have only line times. To avoid showing the wrong lyrics we
+require strict title/artist matching before using AMLL TTML. A manual TTML
+file is supported for songs not found automatically.
+
+This stage does not yet port every Android Melisma provider (Apple Music
+credentials, NetEase YRC, Musixmatch, etc.), timed backing-vocal/duet
+layout, phoneme timing, translations/romanization, or full shader-based
+syllable animations. Those require separate integration.
+
+AMLL TTML DB: https://github.com/amll-dev/amll-ttml-db and
+https://amll.dev/reference/http-api/overview.html
+
+## Retained from v0.5.4
 
 ## New in v0.5.4 — seamless Cinema background
 

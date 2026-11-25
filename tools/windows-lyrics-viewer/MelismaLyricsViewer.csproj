@@ -6,8 +6,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>MelismaLyricsViewer</AssemblyName>
-    <Version>0.5.4</Version>
+    <Version>0.6.0</Version>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <ApplicationTitle>Melisma Universal Lyrics Preview</ApplicationTitle>
   </PropertyGroup>
+  <!-- The nested standalone smoke-test project has its own Program/obj.
+       Exclude it from this WinForms application's default wildcard glob. -->
+  <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
 </Project>
