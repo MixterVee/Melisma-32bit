@@ -1,3 +1,17 @@
+# Foobar2000 Bridge v0.4 — recover rapidly restarted Foobar sessions
+
+Earlier v0.3 opened named memory mappings and **abandoned startup permanently** when a prior mapping name existed. Since Melisma holds read-only views, those names can survive after the old Foobar process exits. On immediate restart the new bridge then fails to publish native song/clock information, causing stale titles or an unusable playback clock.
+
+This version acquires an exclusive writer mutex and checks the prior bridge heartbeat before taking over named shared memory. If a previous v0.3 process is still alive, the new writer does not overwrite it. If the writer is gone and the old mapping persists, it **retries** on Foobar's UI-thread timer until the old heartbeat is stale, reopens the existing timeline/metadata/art mappings and initializes them with a fresh process-generation epoch. The legacy memory layouts and Windows read-only consumers remain compatible.
+
+No audio writes, player control, MP3 modifications, network server, or port forwarding.
+
+**Installation:** In Foobar2000 → File → Preferences → Components → Install, select `foo_melisma_bridge.fb2k-component` from the v0.4 build, replacing v0.3, then restart Foobar. Pair with **Melisma Windows v0.6.21** for automatic old-lyric invalidation and restart-safe metadata.
+
+**Test:** Play one song → exit Foobar while playing → double-click a different MP3 immediately. After Foobar's new process establishes its native bridge, Melisma must show only the new song and its own lyrics. Repeat with a second-screen TV display.
+
+---
+
 # Foobar2000 Bridge v0.3 — track-specific front cover
 
 The bridge now publishes actual front-cover art from Foobar2000's centralized now-playing album-art service via read-only shared memory `Local\\MelismaFoobarArtwork_v1`. The snapshot has a track generation, a sequence guard, a loading/has-cover/no-cover state and up to 8MB of image bytes. The existing playback and metadata mappings remain untouched.
