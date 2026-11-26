@@ -1,3 +1,27 @@
+# Melisma Universal — Windows v0.6.15 (test build)
+
+## Restore centered Lyrics mode and prove active words actually resize
+
+Windows v0.6.14 changed text alignment to left throughout both display layouts while porting Android's spring/dot timing. The user wants **Lyrics mode centered**.
+
+- **Lyrics mode:** independently center each wrapped synchronized lyric row across its full-width lyrics area; also center fallback plain-lyric lines.
+- **Cinema mode:** preserve the left-aligned lyric column beside the album-cover panel.
+- **Precise active-word enlargement:** the active word's base position is computed from the exact same centered row origin used for the normal lyric line and the exclusion mask. The larger font is drawn with the same fixed word center, so enlargement changes actual font size, not word position.
+- **Measured size change:** Android's word-scale targets run from 0.95× through 1.0505× on held notes and settle back to 1.00×; a damped spring smooths the transition. Short words may show less growth, as on Android. The full lyric line is not resized or rewrapped.
+- **Interlude positioning preserved:** Android-style timed dots remain in their reserved row before the upcoming lyric, aligned with the left edge of the first centered upcoming line in Lyrics mode. Cinema keeps existing left-column alignment.
+- No Foobar bridge upgrade needed. Existing v0.6.14 providers, animation, CPU/adaptive redraw and v0.6.13 native artwork are unchanged.
+
+### Test checklist
+1. Select **Display → View → Layout → Lyrics**. Lyrics should be horizontally centered, including short lines; words must no longer drag toward the left.
+2. Try **Cinema** and confirm lyrics remain beside the cover with their normal left-aligned column.
+3. With **Enlarge sung word (Android style)** enabled, play a word-timed song with a few sustained words. Watch letters actually enlarge (typically a subtle 5% maximum) about a stationary centre. In Android's implementation the spring can settle short syllables before a large swell occurs.
+4. Watch three dots on a song with an instrumental intro; in Lyrics mode their row should begin at the left edge of the centered upcoming lyric.
+5. Recheck cover art, seek/pause and second-screen playback.
+
+Automated layout tests validate centering and a stationary word centre, but final visual confirmation needs Windows playback.
+
+---
+
 # Melisma Universal — Windows v0.6.14 (Android lyric layout parity test)
 
 ## Source-based comparison (Android TV vs Windows)

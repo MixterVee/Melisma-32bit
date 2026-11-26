@@ -164,6 +164,7 @@ internal static class ParserSmokeTests
         ActiveWordPulseTests.Run(Check);
         InterludeAndArtworkTests.Run(Check);
         AndroidParityTests.Run(Check);
+        LyricAlignmentTests.Run(Check);
         Check(NativeArtworkState.Matches(2,
                 new NativeArtworkSample(2, 4, NativeArtworkState.HasCover, new byte[160])),
             "Foobar front cover is accepted only for the current generation");

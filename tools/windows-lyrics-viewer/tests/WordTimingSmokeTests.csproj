@@ -19,6 +19,8 @@
     <Compile Include="../ActiveWordPulse.cs" Link="ActiveWordPulse.cs" />
     <Compile Include="../LyricsInterlude.cs" Link="LyricsInterlude.cs" />
     <Compile Include="../AndroidLyricMotion.cs" Link="AndroidLyricMotion.cs" />
+    <Compile Include="../LyricRowAlignment.cs" Link="LyricRowAlignment.cs" />
+    <Compile Include="LyricAlignmentTests.cs" />
     <Compile Include="AndroidParityTests.cs" />
     <Compile Include="../LyricPreviewMotion.cs" Link="LyricPreviewMotion.cs" />
     <Compile Include="../CoverFade.cs" Link="CoverFade.cs" />
