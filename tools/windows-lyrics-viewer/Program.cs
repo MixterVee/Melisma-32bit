@@ -100,7 +100,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.22";
+        Text = "Melisma Universal · Windows v0.6.23";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -2148,8 +2148,12 @@ internal sealed class LyricsCanvas : Control
     private void DrawIdleTakeover(Graphics g)
     {
         if (_idleBackground.LivingMix <= 0.001f) return;
-        var art = _artwork.Enabled ? _artwork.VisibleBackground : null;
-        _fluidLiving.Draw(g, ClientRectangle, art, _idleBackground.LivingMix);
+        // Idle takeover uses the same smoothly blended palette as regular
+        // Living background; stopping playback must not snap its colours.
+        _fluidLiving.DrawTransition(g, ClientRectangle,
+            _artwork.Enabled ? _artwork.Previous : null,
+            _artwork.Enabled ? _artwork.Current : null,
+            _artwork.Progress, _idleBackground.LivingMix);
     }
 
     private RectangleF LyricsArea
@@ -2221,8 +2225,12 @@ internal sealed class LyricsCanvas : Control
 
         if (style == MelismaBackgroundStyle.Living)
         {
-            var livingArt = _artwork.Enabled ? _artwork.VisibleBackground : null;
-            _fluidLiving.Draw(g, ClientRectangle, livingArt, layerOpacity);
+            // The previous version selected Current immediately, bypassing
+            // the 1–10s artwork fade entirely in the default Living mode.
+            _fluidLiving.DrawTransition(g, ClientRectangle,
+                _artwork.Enabled ? _artwork.Previous : null,
+                _artwork.Enabled ? _artwork.Current : null,
+                _artwork.Progress, layerOpacity);
             // Darken the regular Living BACKGROUND for readable lyrics.
             // The idle screensaver is intentionally shown without this scrim.
             using var veil = new SolidBrush(Color.FromArgb(
