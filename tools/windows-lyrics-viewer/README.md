@@ -1,3 +1,32 @@
+# Melisma Universal Windows v0.6.16 — stationary word enlargement
+
+## Correct the lateral drift still visible in v0.6.15
+
+The user supplied **2026-11-25_20h13_26.mp4**, showing a 25-second segment of *…Ready For It?* in full-screen Lyrics mode. Individual sung words still appear to slide to the left during enlargement despite the previous numeric-centre correction.
+
+### What was wrong
+
+The v0.6.15 animation independently measured the extracted word, created a new larger font and re-rendered that word inside a rectangle calculated from string-prefix widths. Those independent font metrics do not exactly match the original complete-row glyph spacing and GDI+ aligned layout. Even though the drawn rectangle had a calculated fixed midpoint, the **actual letters** could shift.
+
+### What changed
+
+- **Scale the original rendered glyphs**, not a newly measured/re-laid-out string: use the unchanged complete lyric row, font, alignment and DrawString rectangle.
+- **Measure the active characters inside the complete row** using GDI+ `MeasureCharacterRanges` to get the original word ink region and immutable X/Y pivot. The word's exclusion mask uses the same region.
+- **Apply one uniform graphics transform around that pivot** (both X and Y), preserving the original kerning, baseline, horizontal centering and word position. Cyan progression is clipped within the transformed word region.
+- **Single-render word**: the base row omits the word and the transformed full-row artwork is clipped only to those characters, preventing doubled text.
+- **Preserve Android's subtle 0.95–1.0505× spring targets**, exact Foobar word timestamps, centered Lyrics mode from v0.6.15, Cinema, three instrumental dots, cached lyrics, and v0.6.13 Foobar Bridge v0.3 artwork.
+- **Regression tests** assert every font scale expands equally in all directions around an unchanged glyph centre. These are geometry tests; actual GDI+ output still needs visual verification.
+
+### Manual acceptance test
+
+1. Keep Foobar Bridge v0.3 installed and extract v0.6.16 into a separate folder.
+2. In **Display → View → Layout**, use **Lyrics** and enable **Enlarge sung word (Android style)**.
+3. Play *…Ready For It?*, especially the line *In the middle of the night, in my dreams* and the first chorus. Watch the middle of each growing word. The centre must remain stationary while its ink expands equally left/right and up/down, with no text double-exposure.
+4. Watch multi-row centered lyrics and Cinema separately. Surrounding words should remain still except for the intentional scrolling of the lyric rows.
+5. Compare CPU use, sync, and coverage with v0.6.15. This change does not request new lyric providers or affect MP3 data.
+
+---
+
 # Melisma Universal — Windows v0.6.15 (test build)
 
 ## Restore centered Lyrics mode and prove active words actually resize

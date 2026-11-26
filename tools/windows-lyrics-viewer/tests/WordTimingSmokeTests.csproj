@@ -1,7 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
@@ -20,6 +21,8 @@
     <Compile Include="../LyricsInterlude.cs" Link="LyricsInterlude.cs" />
     <Compile Include="../AndroidLyricMotion.cs" Link="AndroidLyricMotion.cs" />
     <Compile Include="../LyricRowAlignment.cs" Link="LyricRowAlignment.cs" />
+    <Compile Include="../ActiveWordGeometry.cs" Link="ActiveWordGeometry.cs" />
+    <Compile Include="WordPivotTests.cs" />
     <Compile Include="LyricAlignmentTests.cs" />
     <Compile Include="AndroidParityTests.cs" />
     <Compile Include="../LyricPreviewMotion.cs" Link="LyricPreviewMotion.cs" />
