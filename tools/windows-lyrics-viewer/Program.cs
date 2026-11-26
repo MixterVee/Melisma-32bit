@@ -68,6 +68,7 @@ internal sealed class LyricsController : Form
     private bool _offsetSaved = true;
     private int _playerState;
     private bool _bridgeFound;
+    private bool _everHadNativeBridge;
     private bool _bridgeWasStale;
     private long _bridgeAgeMs = -1;
     private string _clockSource = "No playback clock";
@@ -75,6 +76,7 @@ internal sealed class LyricsController : Form
     private long _lastClockLabelTick;
     private ulong _lastFoobarTrackGeneration;
     private ulong _lastLoadedGeneration;
+    private long _lastMetadataRetry;
 
     // Secondary Windows media-session timeline, usable when Foobar's
     // native bridge is absent. Unlike track metadata, this may not be
@@ -97,7 +99,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.20";
+        Text = "Melisma Universal · Windows v0.6.21";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -281,6 +283,61 @@ internal sealed class LyricsController : Form
         1 => "Playing", 2 => "Paused", _ => "Stopped"
     };
 
+    // Called synchronously on Foobar stop, bridge loss, and native track
+    // generation change BEFORE any async metadata/lyric lookup can complete.
+    // It prevents a stopped/older document from scrolling to new audio.
+    private void InvalidateTrack(string message, bool clearArtwork)
+    {
+        _searchCancellation?.Cancel();
+        _searchCancellation?.Dispose();
+        _searchCancellation = null;
+        ++_artworkRequestId; // Stale album lookups may not repaint old art.
+        _loadedFor = "";
+        _song = _artist = _album = "";
+        _lines.Clear();
+        _plainLyrics = "";
+        _offsetMs = 0;
+        _offsetSaved = true;
+        _source = "No current Foobar lyrics";
+        _notice = message;
+        _lookupReport = message;
+        _trackLabel.Text = "Melisma · Waiting for current Foobar track";
+        _statusLabel.Text = message;
+        _lastLoadedGeneration = ulong.MaxValue;
+        if (clearArtwork)
+        {
+            _artwork.Replace(null);
+            _artworkStatus = "Foobar session ended · old cover cleared";
+            _manualArtworkForTrack = false;
+        }
+        UpdateDelayLabel();
+        _preview.Invalidate();
+        _projection?.Redraw();
+    }
+
+    private void DisconnectNativeSession(string message)
+    {
+        bool hadTrack = _loadedFor.Length > 0 || _lines.Count > 0 ||
+            _song.Length > 0;
+        _bridge.Dispose();
+        // IMPORTANT: All three shared-memory views retain old mapping
+        // objects after Foobar exits. Releasing only the timeline prevents
+        // the restarted writer from reopening its metadata/artwork channels.
+        _nativeTags.Dispose();
+        _nativeArtwork.Dispose();
+        _bridgeFound = false;
+        _lastFoobarTrackGeneration = 0;
+        _lastLoadedGeneration = ulong.MaxValue;
+        _windowsState = 0;
+        _windowsTimelineValid = false;
+        _clockUsable = false;
+        _playerState = 0;
+        _positionMs = 0;
+        _durationMs = 0;
+        _clockSource = message;
+        if (hadTrack) InvalidateTrack(message, clearArtwork: true);
+    }
+
     private void ReadBridge()
     {
         long nowTick = Environment.TickCount64;
@@ -288,46 +345,85 @@ internal sealed class LyricsController : Form
         {
             long sampleAge = nowTick - native.TickMs;
             _bridgeAgeMs = sampleAge;
-            // The reader holds the mapping open even if Foobar exits, so
-            // samples can otherwise remain frozen forever. Release a stale
-            // handle to permit a new Foobar bridge mapping to be published.
             if (PlaybackClockHealth.Fresh(nowTick, native.TickMs))
             {
+                bool newlyConnected = !_bridgeFound;
                 _bridgeFound = true;
+                _everHadNativeBridge = true;
                 _bridgeWasStale = false;
                 _clockUsable = true;
-                // Android reacts to track-change events, not a fixed media
-                // poll. Foobar's existing bridge publishes that event as a
-                // generation change, so ask GSMTC for metadata immediately.
-                bool newTrack = native.Generation != _lastFoobarTrackGeneration;
-                _lastFoobarTrackGeneration = native.Generation;
-                if (newTrack)
-                {
-                    ++_artworkRequestId; // Invalidate previous song's image lookup.
-                    _artworkStatus = "New Foobar track · verifying cover";
-                    _nativeCoverRequestedAt = Environment.TickCount64;
-                    _manualArtworkForTrack = false;
-                }
                 _clockSource = "Foobar bridge";
                 _playerState = native.State;
                 _durationMs = native.DurationMs > 0 ? (long)native.DurationMs : 0;
-                // Duration must be updated before metadata triggers a search.
-                if (newTrack && !_mediaBusy) _ = PollMediaAsync();
-                long age = Math.Clamp(sampleAge, 0L, 350L);
                 _positionMs = (long)native.PositionMs +
-                    (native.State == 1 ? age : 0);
-                if (_durationMs > 0) _positionMs = Math.Min(_positionMs, _durationMs);
+                    (native.State == 1 ? Math.Clamp(sampleAge, 0L, 350L) : 0);
+                if (_durationMs > 0)
+                    _positionMs = Math.Min(_positionMs, _durationMs);
+
+                if (native.State == 0)
+                {
+                    if (FoobarSessionSafety.MustClearTrack(
+                        _loadedFor.Length > 0 || _lines.Count > 0,
+                        clockFresh: true, playbackState: 0))
+                        InvalidateTrack("Foobar playback stopped", clearArtwork: true);
+                    _lastFoobarTrackGeneration = native.Generation;
+                    return;
+                }
+
+                bool newTrack = FoobarSessionSafety.NewSong(
+                    _lastFoobarTrackGeneration, native.Generation,
+                    newlyConnected);
+                _lastFoobarTrackGeneration = native.Generation;
+                if (newTrack)
+                {
+                    // Never let old song text scroll while Foobar is
+                    // publishing the new song's tags. The original cover
+                    // is retained only as the outgoing crossfade image.
+                    InvalidateTrack("Waiting for new Foobar track metadata…",
+                        clearArtwork: false);
+                    _nativeCoverRequestedAt = nowTick;
+                    _nativeCoverSequence = -1;
+                    _nativeCoverGeneration = 0;
+                    _artworkFallbackStarted = false;
+                    _manualArtworkForTrack = false;
+                }
+
+                // Retry if tags were not ready on the first bridge tick,
+                // including when a metadata poll was already in flight.
+                if ((newTrack || _loadedFor.Length == 0) &&
+                    nowTick - _lastMetadataRetry >= 220 && !_mediaBusy)
+                {
+                    _lastMetadataRetry = nowTick;
+                    _ = PollMediaAsync();
+                }
                 return;
             }
             _bridgeWasStale = true;
-            _bridge.Dispose();
+            DisconnectNativeSession("Foobar bridge stale · reconnecting");
         }
-        _bridgeFound = false;
+        else if (_bridgeFound)
+        {
+            DisconnectNativeSession("Foobar bridge disconnected");
+        }
 
-        // Graceful fallback to the Windows session *only if* it has a
-        // meaningful, dated position. Foobar may expose titles through GSMTC
-        // without exposing ANY timeline; never simulate a position from
-        // song start just because the session says "playing".
+        if (!FoobarSessionSafety.AcceptWindowsFallback(
+                _everHadNativeBridge, _bridgeFound))
+        {
+            // A previously-live Foobar may still have a stale GSMTC
+            // title/timeline. Do not animate old lyrics against it.
+            _clockUsable = false;
+            _playerState = 0;
+            _clockSource = _bridgeWasStale
+                ? "Foobar bridge stale · waiting for restart"
+                : "Waiting for Foobar bridge";
+            _positionMs = 0;
+            _durationMs = 0;
+            return;
+        }
+
+        _bridgeFound = false;
+        // Preserve GSMTC-only compatibility on systems that never exposed
+        // a native Foobar bridge.
         _playerState = _windowsState;
         if (_windowsTimelineValid &&
             nowTick >= _windowsSampleTick &&
@@ -337,15 +433,13 @@ internal sealed class LyricsController : Form
             _clockSource = "Windows media timeline";
             _durationMs = _windowsDurationMs;
             long age = Math.Clamp(nowTick - _windowsSampleTick, 0, 2500);
-            _positionMs = _windowsPositionMs +
-                (_windowsState == 1 ? age : 0);
-            if (_durationMs > 0) _positionMs = Math.Min(_positionMs, _durationMs);
+            _positionMs = _windowsPositionMs + (_windowsState == 1 ? age : 0);
+            if (_durationMs > 0)
+                _positionMs = Math.Min(_positionMs, _durationMs);
             return;
         }
         _clockUsable = false;
-        _clockSource = _bridgeWasStale
-            ? "Foobar bridge stale · restart foobar2000"
-            : "No playback clock · check Foobar bridge";
+        _clockSource = "No playback clock · check Foobar bridge";
         _positionMs = 0;
         _durationMs = 0;
     }
@@ -423,7 +517,9 @@ internal sealed class LyricsController : Form
 
     private async Task PollMediaAsync()
     {
-        if (_mediaBusy || _manager == null || IsDisposed) return;
+        if (_mediaBusy || _manager == null || IsDisposed ||
+            (_everHadNativeBridge && (!_bridgeFound || _playerState == 0)))
+            return;
         _mediaBusy = true;
         try
         {
@@ -445,17 +541,33 @@ internal sealed class LyricsController : Form
             }
             var props = session == null ? null : await session.TryGetMediaPropertiesAsync();
 
-            // The native bridge identifies the actual Foobar track.
-            // Windows GSMTC can publish an incomplete artist/album or lag
-            // behind the Foobar track-change generation.
-            bool nativeCurrent = _nativeTags.TryRead(out var tags) &&
-                tags.Generation == _lastFoobarTrackGeneration &&
-                !string.IsNullOrWhiteSpace(tags.Title);
-            string title = nativeCurrent ? tags.Title : (props?.Title ?? "").Trim();
-            // An empty Foobar tag must NOT be filled with stale Windows
-            // metadata belonging to the previously played song.
-            string artist = nativeCurrent ? tags.Artist : (props?.Artist ?? "").Trim();
-            string album = nativeCurrent ? tags.Album : (props?.AlbumTitle ?? "").Trim();
+            // The native bridge is authoritative whenever one has been
+            // observed. GSMTC may still report the PREVIOUS track for a
+            // little while after Foobar exits/restarts.
+            NativeTagSample? tags = _nativeTags.TryRead(out var sample)
+                ? sample : null;
+            bool nativeCurrent = FoobarSessionSafety.AcceptNativeTags(
+                _bridgeFound && _clockUsable, _playerState,
+                _lastFoobarTrackGeneration, tags);
+            if (_everHadNativeBridge && !nativeCurrent)
+            {
+                _notice = "Waiting for Foobar's current song identity…";
+                return;
+            }
+            // Do not load a new lyric document until the native writer's
+            // clock agrees with the metadata generation. A restarted
+            // Foobar may have reused the same number on bridge v0.3.
+            if (nativeCurrent &&
+                (!_bridge.TryRead(out var currentClock) ||
+                 !PlaybackClockHealth.Fresh(
+                     Environment.TickCount64, currentClock.TickMs) ||
+                 currentClock.Generation != tags!.Generation ||
+                 currentClock.State == 0))
+                return;
+
+            string title = nativeCurrent ? tags!.Title : (props?.Title ?? "").Trim();
+            string artist = nativeCurrent ? tags!.Artist : (props?.Artist ?? "").Trim();
+            string album = nativeCurrent ? tags!.Album : (props?.AlbumTitle ?? "").Trim();
             if (title.Length == 0)
             {
                 _notice = "Waiting for Foobar2000 song metadata.";
@@ -464,8 +576,11 @@ internal sealed class LyricsController : Form
 
             // Read duration from Foobar directly before constructing the
             // provider request; zero-duration GSMTC is not authoritative.
-            if (_bridge.TryRead(out var live) && live.DurationMs > 0 &&
-                (!nativeCurrent || live.Generation == tags.Generation))
+            if (_bridgeFound && _bridge.TryRead(out var live) &&
+                PlaybackClockHealth.Fresh(
+                    Environment.TickCount64, live.TickMs) &&
+                live.DurationMs > 0 &&
+                (!nativeCurrent || live.Generation == tags!.Generation))
                 _durationMs = (long)live.DurationMs;
 
             if (title == _song && artist == _artist && album == _album &&
@@ -521,7 +636,8 @@ internal sealed class LyricsController : Form
 
     private void ProcessNativeArtwork()
     {
-        if (IsDisposed || _manualArtworkForTrack ||
+        if (IsDisposed || !_bridgeFound || _playerState == 0 ||
+            _manualArtworkForTrack ||
             !_nativeArtwork.TryRead(out var sample))
             return;
 

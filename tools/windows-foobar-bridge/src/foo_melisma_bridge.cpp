@@ -1,4 +1,4 @@
-// Melisma Foobar2000 Bridge v0.3
+// Melisma Foobar2000 Bridge v0.4
 // Read-only playback timeline for local Windows karaoke. No audio modifications,
 // playback commands, network listeners, filesystem or registry access.
 // Foobar2000 SDK playback_control requires the main thread. The Win32 timer
@@ -15,6 +15,7 @@ namespace {
 constexpr wchar_t kMappingName[] = L"Local\\MelismaFoobarBridge_v1";
 constexpr wchar_t kMetaName[] = L"Local\\MelismaFoobarMetadata_v1";
 constexpr wchar_t kArtName[] = L"Local\\MelismaFoobarArtwork_v1";
+constexpr wchar_t kWriterLockName[] = L"Local\\MelismaFoobarWriterLock_v1";
 constexpr std::uint32_t kMaxArtBytes = 8 * 1024 * 1024;
 constexpr std::uint32_t kMagic = 0x4D454C49; // "MELI"
 constexpr std::uint32_t kVersion = 1;
@@ -67,6 +68,11 @@ HANDLE g_mapping = nullptr;
 BridgeSnapshot* g_shared = nullptr;
 UINT_PTR g_timer = 0;
 std::uint64_t g_generation = 0;
+HANDLE g_writerLock = nullptr;
+bool g_writerOwns = false;
+bool g_publishing = false;
+bool g_mappingWasExisting = false;
+void tryStartPublisher() noexcept;
 
 void publishArtwork(album_art_data::ptr data, bool finished = true) noexcept {
     if (g_art == nullptr) return;
@@ -171,7 +177,8 @@ void publishFromFoobar() noexcept {
 
 VOID CALLBACK timerProc(HWND, UINT, UINT_PTR id, DWORD) {
     if (id != g_timer) return;
-    publishFromFoobar();
+    if (!g_publishing) tryStartPublisher();
+    else publishFromFoobar();
 }
 
 class track_events final : public play_callback_impl_base {
@@ -194,54 +201,48 @@ public:
 };
 track_events* g_trackEvents = nullptr;
 
-class bridge_lifecycle : public initquit {
-public:
-    void on_init() override {
-        g_mapping = CreateFileMappingW(
-            INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE,
-            0, sizeof(BridgeSnapshot), kMappingName);
-        if (g_mapping == nullptr) {
-            console::print("foo_melisma_bridge: could not create shared memory");
-            return;
-        }
-        const bool alreadyExists = GetLastError() == ERROR_ALREADY_EXISTS;
-        g_shared = static_cast<BridgeSnapshot*>(
-            MapViewOfFile(g_mapping, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(BridgeSnapshot)));
-        if (g_shared == nullptr) {
-            CloseHandle(g_mapping);
-            g_mapping = nullptr;
-            console::print("foo_melisma_bridge: could not map shared memory");
-            return;
-        }
-        // The name is confined to the interactive Windows user session.
-        // Do not overwrite a competing Foobar instance's live bridge mapping.
-        if (alreadyExists) {
-            UnmapViewOfFile(g_shared);
-            g_shared = nullptr;
-            CloseHandle(g_mapping);
-            g_mapping = nullptr;
-            console::print("foo_melisma_bridge: mapping already exists");
-            return;
-        }
-        ZeroMemory(g_shared, sizeof(*g_shared));
-        g_shared->magic = kMagic;
-        g_shared->version = kVersion;
-        g_shared->durationUs = -1;
+// A still-running old v0.3 bridge does not use the new writer mutex,
+// so also require its heartbeat to become stale before adopting a mapping.
+// If Foobar restarts rapidly, its new bridge retries until the old writer is
+// definitely gone rather than failing permanently on ERROR_ALREADY_EXISTS.
+void tryStartPublisher() noexcept {
+    if (g_publishing || !g_shared || !g_writerOwns) return;
+    const auto now = GetTickCount64();
+    if (g_mappingWasExisting &&
+        g_shared->magic == kMagic && g_shared->version == kVersion) {
+        const auto tick = g_shared->tickMs;
+        if (tick > 0 && (tick > now || now - tick <= 2100)) return;
+    }
+
+    const std::uint64_t pastGeneration =
+        g_shared->magic == kMagic && g_shared->version == kVersion
+            ? g_shared->generation : 0;
+    // Generation is now unique across Foobar process restarts, not merely
+    // a per-process 1,2,3 counter. Existing v0.3 readers accept uint64.
+    const std::uint64_t processEpoch =
+        (static_cast<std::uint64_t>(now) << 16) ^
+         static_cast<std::uint64_t>(GetCurrentProcessId());
+    g_generation = pastGeneration + 1 > processEpoch
+        ? pastGeneration + 1 : processEpoch;
+    ZeroMemory(g_shared, sizeof(*g_shared));
+    g_shared->magic = kMagic;
+    g_shared->version = kVersion;
+    g_shared->durationUs = -1;
 
         // New optional metadata side-channel; original timeline layout
         // remains byte-for-byte backward-compatible with bridge v0.1.
         g_metaMapping = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr,
             PAGE_READWRITE, 0, sizeof(MetadataSnapshot), kMetaName);
         if (g_metaMapping) {
-            bool existed = GetLastError() == ERROR_ALREADY_EXISTS;
-            if (!existed) {
-                g_meta = static_cast<MetadataSnapshot*>(MapViewOfFile(
-                    g_metaMapping, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(MetadataSnapshot)));
-                if (g_meta) {
-                    ZeroMemory(g_meta, sizeof(*g_meta));
-                    g_meta->magic = 0x4D455441; // META
-                    g_meta->version = 1;
-                }
+            // A previous Foobar process may have exited while the viewer
+            // still holds this named mapping. The writer has now acquired
+            // exclusive ownership, so adopt and REINITIALIZE that mapping.
+            g_meta = static_cast<MetadataSnapshot*>(MapViewOfFile(
+                g_metaMapping, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(MetadataSnapshot)));
+            if (g_meta) {
+                ZeroMemory(g_meta, sizeof(*g_meta));
+                g_meta->magic = 0x4D455441; // META
+                g_meta->version = 1;
             }
             if (!g_meta) {
                 CloseHandle(g_metaMapping);
@@ -251,17 +252,14 @@ public:
         g_artMapping = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr,
             PAGE_READWRITE, 0, sizeof(ArtworkSnapshot), kArtName);
         if (g_artMapping) {
-            const bool alreadyMapped = GetLastError() == ERROR_ALREADY_EXISTS;
-            if (!alreadyMapped) {
-                g_art = static_cast<ArtworkSnapshot*>(
-                    MapViewOfFile(g_artMapping, FILE_MAP_ALL_ACCESS,
-                        0, 0, sizeof(ArtworkSnapshot)));
-                if (g_art) {
-                    ZeroMemory(g_art, sizeof(ArtworkSnapshot));
-                    g_art->magic = 0x4152544D; // ARTM
-                    g_art->version = 1;
-                    publishArtwork(album_art_data::ptr(), false);
-                }
+            g_art = static_cast<ArtworkSnapshot*>(
+                MapViewOfFile(g_artMapping, FILE_MAP_ALL_ACCESS,
+                    0, 0, sizeof(ArtworkSnapshot)));
+            if (g_art) {
+                ZeroMemory(g_art, sizeof(ArtworkSnapshot));
+                g_art->magic = 0x4152544D; // ARTM
+                g_art->version = 1;
+                publishArtwork(album_art_data::ptr(), false);
             }
             if (!g_art) {
                 CloseHandle(g_artMapping);
@@ -301,19 +299,56 @@ public:
                 }
             }
         } catch (...) {}
-        // SetTimer(NULL) is delivered on THIS thread's message queue, the
-        // foobar2000 main thread. Playback SDK is never called from a worker.
+
+    g_publishing = true;
+    publishFromFoobar();
+    console::print("foo_melisma_bridge: timeline, native tags, and front cover ready");
+}
+
+class bridge_lifecycle : public initquit {
+public:
+    void on_init() override {
+        // Different Foobar processes must not both write this shared memory.
+        // A legacy v0.3 writer has no mutex, so the heartbeat gate above
+        // additionally protects against taking over its live mapping.
+        g_writerLock = CreateMutexW(nullptr, FALSE, kWriterLockName);
+        if (!g_writerLock) return;
+        const DWORD lock = WaitForSingleObject(g_writerLock, 0);
+        if (lock != WAIT_OBJECT_0 && lock != WAIT_ABANDONED) {
+            CloseHandle(g_writerLock);
+            g_writerLock = nullptr;
+            console::print("foo_melisma_bridge: another Foobar bridge owns the writer lock");
+            return;
+        }
+        g_writerOwns = true;
+
+        g_mapping = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr,
+            PAGE_READWRITE, 0, sizeof(BridgeSnapshot), kMappingName);
+        if (!g_mapping) {
+            console::print("foo_melisma_bridge: could not create shared memory");
+            return;
+        }
+        g_mappingWasExisting = GetLastError() == ERROR_ALREADY_EXISTS;
+        g_shared = static_cast<BridgeSnapshot*>(
+            MapViewOfFile(g_mapping, FILE_MAP_ALL_ACCESS, 0, 0,
+                sizeof(BridgeSnapshot)));
+        if (!g_shared) {
+            console::print("foo_melisma_bridge: could not map shared memory");
+            return;
+        }
+
+        // Retry acquisition after a previous writer exits. In particular,
+        // never give up just because a Melisma viewer still has the old
+        // memory-mapped file open after an immediate Foobar restart.
+        tryStartPublisher();
         g_timer = SetTimer(nullptr, 0, 100, timerProc);
-        if (g_timer == 0) console::print("foo_melisma_bridge: timer setup failed");
-        publishFromFoobar();
-        console::print("foo_melisma_bridge: read-only timing, tags and native artwork ready");
+        if (!g_timer)
+            console::print("foo_melisma_bridge: timer setup failed");
     }
     void on_quit() override {
         if (g_timer) { KillTimer(nullptr, g_timer); g_timer = 0; }
         delete g_trackEvents;
         g_trackEvents = nullptr;
-        if (g_shared) { UnmapViewOfFile(g_shared); g_shared = nullptr; }
-        if (g_mapping) { CloseHandle(g_mapping); g_mapping = nullptr; }
         if (g_artNotify) {
             try { now_playing_album_art_notify_manager::get()->remove(g_artNotify); }
             catch (...) {}
@@ -323,6 +358,13 @@ public:
         if (g_artMapping) { CloseHandle(g_artMapping); g_artMapping = nullptr; }
         if (g_meta) { UnmapViewOfFile(g_meta); g_meta = nullptr; }
         if (g_metaMapping) { CloseHandle(g_metaMapping); g_metaMapping = nullptr; }
+        if (g_shared) { UnmapViewOfFile(g_shared); g_shared = nullptr; }
+        if (g_mapping) { CloseHandle(g_mapping); g_mapping = nullptr; }
+        g_publishing = false;
+        if (g_writerOwns && g_writerLock) ReleaseMutex(g_writerLock);
+        if (g_writerLock) CloseHandle(g_writerLock);
+        g_writerLock = nullptr;
+        g_writerOwns = false;
     }
 };
 static initquit_factory_t<bridge_lifecycle> g_lifecycle;
@@ -330,7 +372,7 @@ static initquit_factory_t<bridge_lifecycle> g_lifecycle;
 
 DECLARE_COMPONENT_VERSION(
     "Melisma Foobar2000 Bridge",
-    "0.3.0",
+    "0.4.0",
     "Read-only Foobar playback timing and metadata for Melisma Karaoke.\n"
     "Reports position, duration, tags, front cover, and track changes. "
     "Never modifies audio, playlists or playback.");

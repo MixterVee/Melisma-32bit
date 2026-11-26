@@ -1,3 +1,29 @@
+# Melisma Universal Windows v0.6.21 — Foobar restart session safety
+
+**Reproduction:** The user played *Travelin' Soldier*, closed Foobar2000, opened another track, and Melisma resumed scrolling *Travelin' Soldier* lyrics to the new audio.
+
+**Root causes:** Closing Foobar can leave three old shared-memory mappings open in the Windows viewer. When Foobar launches again, a new process could reuse the old bridge's per-process track generation and Windows GSMTC could report a previous song's title. The old bridge v0.3 also refused to publish anything if the prior instance's named mapping was still alive through the reader's handle.
+
+**Windows v0.6.21**
+- Treat Foobar stop, bridge loss, and a track-generation change as hard lyric invalidation boundaries. Cancel old lookups and clear old lyric lines, track identity, plain text and offset before presenting new lyrics.
+- Dispose *all three* native mappings—timeline, tags, artwork—when the bridge disappears. Do not retain a disconnected process's tags or album art.
+- Require both a **fresh Foobar playback clock and native song tags whose generation matches the clock** before loading lyrics. Once a native Foobar bridge was observed, delayed Windows GSMTC metadata can never resurrect the old song after restart.
+- An actual paused song remains displayed (no unnecessary clearing), and the usual native track-change path reloads immediately when tags are ready.
+- Older Windows-only setups still have their prior fallback behavior if no native bridge has ever been connected.
+
+**Foobar Bridge v0.4 REQUIRED for fully reliable rapid restarts.** It now retries instead of permanently failing when the previous shared-memory map is still held by Melisma. It can reclaim the stale mapping after the old process's heartbeat has stopped, and generates distinct track identity across Foobar process restarts. Existing timeline/tag/art formats remain compatible.
+
+### Acceptance test
+1. Install Foobar Bridge v0.4 through Foobar2000 → Preferences → Components → Install; restart Foobar. Extract Melisma Windows v0.6.21 to a separate folder.
+2. Play *Travelin' Soldier* until its word highlighting and animation are visible. **Close Foobar2000 while it is playing**. Melisma should stop and clear the old lyric document, not continue scrolling it.
+3. Open a different MP3 from Explorer, which restarts Foobar2000. Melisma should display the new song title, retrieve its own lyrics, and use its own playback position.
+4. Repeat with a *rapid* close/reopen, then pause/resume and skip among multiple different tracks. Never display *Travelin' Soldier* lyrics on another song.
+5. Check **Sources…**: native tags and playback generation must refer to the current track; old cached lyrics must not be reused on a different song. The saved cache stays intact, and v0.6.20 spacing, v0.6.19 animation styles, v0.6.18 third-dot timing and album-cover improvements remain preserved.
+
+This is an automated-test build until confirmed by the user's actual Foobar playback.
+
+---
+
 # Melisma Universal Windows v0.6.20 — missing English word spaces
 
 ## Report
