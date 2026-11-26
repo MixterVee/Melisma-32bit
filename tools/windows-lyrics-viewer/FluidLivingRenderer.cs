@@ -16,30 +16,45 @@ internal sealed class FluidLivingRenderer : IDisposable
     private const int Height = 108;
     private readonly int[] _pixels = new int[Width * Height];
     private readonly Bitmap _bitmap = new(Width, Height, PixelFormat.Format32bppArgb);
-    private Image? _lastArtwork;
-    private Color[] _palette =
-    [
-        Color.FromArgb(25, 76, 120),
-        Color.FromArgb(102, 47, 142),
-        Color.FromArgb(35, 125, 116),
-        Color.FromArgb(148, 55, 87)
-    ];
+    private Image? _outgoingArtwork;
+    private Image? _incomingArtwork;
+    private Color[] _outgoingPalette = PaletteFor(null);
+    private Color[] _incomingPalette = PaletteFor(null);
+    private readonly Color[] _palette = PaletteFor(null);
     private long _lastFrameTick = -1;
 
-    public void Draw(Graphics g, Rectangle bounds, Image? artwork, float opacity)
+    public void Draw(Graphics g, Rectangle bounds, Image? artwork, float opacity) =>
+        DrawTransition(g, bounds, artwork, artwork, 1f, opacity);
+
+    // v0.6.22 restored album COVER fades but fed this renderer only
+    // _artwork.Current, swapping Living's dominant palette immediately.
+    // Interpolate the actual displayed colours between previous/current
+    // artwork for the user's full configured background-fade duration.
+    public void DrawTransition(Graphics g, Rectangle bounds,
+        Image? outgoingArtwork, Image? incomingArtwork,
+        float progress, float opacity)
     {
         if (bounds.Width <= 0 || bounds.Height <= 0 || opacity <= 0.001f) return;
+        progress = Math.Clamp(progress, 0f, 1f);
         long now = Environment.TickCount64;
-        if (!ReferenceEquals(artwork, _lastArtwork))
+        if (!ReferenceEquals(outgoingArtwork, _outgoingArtwork) ||
+            !ReferenceEquals(incomingArtwork, _incomingArtwork))
         {
-            _lastArtwork = artwork;
-            UpdatePalette(artwork);
+            _outgoingArtwork = outgoingArtwork;
+            _incomingArtwork = incomingArtwork;
+            _outgoingPalette = PaletteFor(outgoingArtwork);
+            _incomingPalette = PaletteFor(incomingArtwork);
             _lastFrameTick = -1;
         }
-        // 10 frames/second is plenty for evolving clouds; the same cached
-        // frame is reused during all 55-ms lyric paint ticks.
+
+        // Low-cost palette interpolation occurs only when rendering the
+        // existing 10fps fluid frame, never in an extra animation timer.
+        // At progress=0 the previous palette is preserved exactly; at 1
+        // the incoming album's palette is fully adopted.
         if (_lastFrameTick < 0 || now - _lastFrameTick >= 100)
         {
+            for (int i = 0; i < _palette.Length; i++)
+                _palette[i] = Mix(_outgoingPalette[i], _incomingPalette[i], progress);
             Render(now / 1000f);
             _lastFrameTick = now;
         }
@@ -64,10 +79,10 @@ internal sealed class FluidLivingRenderer : IDisposable
         g.Restore(saved);
     }
 
-    private void UpdatePalette(Image? art)
+    internal static Color[] PaletteFor(Image? art)
     {
-        // Fallback remains abstract even with no cover. When available,
-        // album artwork influences the palette but is never itself drawn.
+        // Same artwork-to-palette extraction as before the transition fix,
+        // but only once per incoming/outgoing bitmap change.
         Color[] defaults =
         [
             Color.FromArgb(25, 76, 120),
@@ -75,11 +90,7 @@ internal sealed class FluidLivingRenderer : IDisposable
             Color.FromArgb(35, 125, 116),
             Color.FromArgb(148, 55, 87)
         ];
-        if (art == null)
-        {
-            _palette = defaults;
-            return;
-        }
+        if (art == null) return defaults;
         try
         {
             using var sample = new Bitmap(4, 4);
@@ -93,17 +104,21 @@ internal sealed class FluidLivingRenderer : IDisposable
                 sample.GetPixel(0, 0), sample.GetPixel(3, 1),
                 sample.GetPixel(1, 3), sample.GetPixel(3, 3)
             ];
-            _palette = new Color[4];
+            Color[] result = new Color[4];
             for (int i = 0; i < 4; i++)
-                _palette[i] = Mix(defaults[i], extracted[i], 0.53f);
+                result[i] = Mix(defaults[i], extracted[i], 0.53f);
+            return result;
         }
         catch (Exception ex) when (ex is ArgumentException or
                                         ExternalException or
                                         OutOfMemoryException)
         {
-            _palette = defaults;
+            return defaults;
         }
     }
+
+    internal static Color PaletteBetween(Color oldColor, Color newColor,
+        float progress) => Mix(oldColor, newColor, Math.Clamp(progress, 0f, 1f));
 
     private void Render(float time)
     {
