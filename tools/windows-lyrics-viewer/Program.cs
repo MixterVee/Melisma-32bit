@@ -97,7 +97,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.15";
+        Text = "Melisma Universal · Windows v0.6.16";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -2405,20 +2405,60 @@ internal sealed class LyricsCanvas : Control
         return null;
     }
 
+    // Measure the active characters from their ORIGINAL complete, aligned
+    // lyric row. GDI+ character spacing/kerning and DrawString padding make
+    // independently measured word widths unreliable, particularly for
+    // centered lyrics. Using the very same complete-row layout also keeps
+    // the word omission mask and enlarged glyphs pixel-aligned.
+    private static RectangleF WordInkBounds(Graphics g, string rowText,
+        Font font, RectangleF rowRect, StringFormat format,
+        int start, int length)
+    {
+        if (start < 0 || length <= 0 || start + length > rowText.Length)
+            return RectangleF.Empty;
+
+        using var measured = (StringFormat)format.Clone();
+        measured.SetMeasurableCharacterRanges(
+            [new CharacterRange(start, length)]);
+        var regions = g.MeasureCharacterRanges(rowText, font, rowRect, measured);
+        try
+        {
+            var bounds = regions[0].GetBounds(g);
+            if (bounds.Width >= 0.5f && bounds.Height >= 0.5f &&
+                float.IsFinite(bounds.X) && float.IsFinite(bounds.Y))
+                return bounds;
+        }
+        finally
+        {
+            foreach (var region in regions) region.Dispose();
+        }
+
+        // Defensive fallback for fonts that do not expose measurable
+        // character regions. Normal rendering uses the full-row result.
+        bool center = format.Alignment == StringAlignment.Center;
+        float rowWidth = TextWidth(g, rowText, font);
+        float left = LyricRowAlignment.RowLeft(rowRect.Left, rowRect.Width,
+            rowWidth, center);
+        float before = TextWidth(g, rowText[..start], font);
+        float through = TextWidth(g, rowText[..(start + length)], font);
+        return new RectangleF(left + before, rowRect.Top,
+            Math.Max(1f, through - before), rowRect.Height);
+    }
+
     private void DrawActiveWordOverlay(Graphics g, TextLayout layout,
         float centerY, LrcLine line, AnimatedWord active,
         float emphasis, float opacity)
     {
         if (line.Words is not { Count: > 0 } words) return;
-        string wordText = words[active.WordIndex].Text.Trim();
-        if (wordText.Length == 0) return;
         var visualRow = layout.Rows[active.RowIndex];
+        int begin = active.Start - visualRow.Start;
+        int length = active.End - active.Start;
+        if (begin < 0 || length <= 0 ||
+            begin + length > visualRow.Text.Length) return;
 
-        // Android draws every lyric with the SAME full-size base paint.
-        // Only the active word is transformed around its own measured centre.
-        // Windows previously shrank inactive lines to 67%, then grew the
-        // whole line, which made words appear to be pulled sideways.
-        Font baseFont = layout.Font;
+        // Preserve Android's target timing but transform the EXISTING
+        // complete-row glyphs, not a newly sized and remeasured word.
+        // That avoids the sideways "pull" visible in the v0.6.15 video.
         string springId = _revealedDocumentKey + "|" +
             line.AtMs + "|" + active.WordIndex;
         long now = Environment.TickCount64;
@@ -2428,47 +2468,28 @@ internal sealed class LyricsCanvas : Control
             _wordSpring.Snap(1f);
             _wordFrameTick = now;
         }
-        float dt = Math.Clamp((now - _wordFrameTick) / 1000f, 0f, 1f / 15f);
+        float dt = Math.Clamp((now - _wordFrameTick) / 1000f,
+            0f, 1f / 15f);
         _wordFrameTick = now;
         _wordSpring.SetGoal(AndroidWordScale.Target(active.Pulse.Progress));
         float wordScale = Math.Clamp(_wordSpring.Step(dt), 0.92f, 1.12f);
-        using var grownFont = new Font(_display.FontFamily,
-            baseFont.SizeInPoints * wordScale, baseFont.Style,
-            GraphicsUnit.Point);
 
         float top = centerY - layout.TotalHeight / 2f;
         float width = Math.Max(1f, LyricsArea.Width - 2f * SidePadding);
-        var rect = new RectangleF(LyricsArea.Left + SidePadding,
+        var rowRect = new RectangleF(LyricsArea.Left + SidePadding,
             top + active.RowIndex * layout.RowHeight, width, layout.RowHeight);
-
-        // Compute the word boundaries from the SAME measured full row that
-        // the normal lyric renderer uses, not from an independently measured
-        // word's width; otherwise kerning errors make the word drift.
-        int begin = active.Start - visualRow.Start;
-        int finish = active.End - visualRow.Start;
-        float fullWidth = TextWidth(g, visualRow.Text, baseFont);
-        float beforeWidth = TextWidth(g, visualRow.Text[..begin], baseFont);
-        float throughWidth = TextWidth(g, visualRow.Text[..finish], baseFont);
-        // The scaled word must use the EXACT same row origin as DrawLayout.
-        // Lyrics mode centres each complete wrapped row; Cinema retains a
-        // left-aligned column. Its centre stays fixed as the font grows.
-        float rowLeft = LyricRowAlignment.RowLeft(rect.Left, rect.Width,
-            fullWidth, _display.Layout == MelismaViewMode.Lyrics);
-        float wordCenterX = LyricRowAlignment.WordCenter(rowLeft,
-            beforeWidth, throughWidth);
-        float grownWidth = TextWidth(g, wordText, grownFont);
-        float lifted = active.Pulse.LiftEm * baseFont.GetHeight(g);
-        var grownRect = new RectangleF(
-            LyricRowAlignment.GrownWordLeft(wordCenterX, grownWidth),
-            rect.Top - lifted, grownWidth + 5f, rect.Height + 2f);
-
-        using var typographic = new StringFormat(
-            StringFormat.GenericTypographic)
+        using var format = new StringFormat(StringFormat.GenericTypographic)
         {
-            Alignment = StringAlignment.Near,
+            Alignment = _display.Layout == MelismaViewMode.Lyrics
+                ? StringAlignment.Center : StringAlignment.Near,
             LineAlignment = StringAlignment.Center,
             FormatFlags = StringFormatFlags.NoWrap
         };
+        var inkBounds = WordInkBounds(g, visualRow.Text, layout.Font,
+            rowRect, format, begin, length);
+        if (inkBounds.IsEmpty) return;
+        var pivot = ActiveWordGeometry.Pivot(inkBounds);
+
         opacity = Math.Clamp(opacity, 0f, 1f);
         using var shadow = new SolidBrush(Color.FromArgb(
             (int)(90f * opacity), 5, 9, 18));
@@ -2477,26 +2498,52 @@ internal sealed class LyricsCanvas : Control
         using var singing = new SolidBrush(Color.FromArgb(
             (int)(255f * opacity), Highlight));
 
-        // The full baseline word has been masked out in DrawLayout, so
-        // there is exactly one rendered copy of the active word.
-        var shadowRect = grownRect;
-        shadowRect.Offset(0.5f, 0.8f);
-        g.DrawString(wordText, grownFont, shadow, shadowRect, typographic);
-        g.DrawString(wordText, grownFont, resting, grownRect, typographic);
-
-        float litFraction = _display.SmoothWordFill &&
-            words[active.WordIndex].EndMs > words[active.WordIndex].AtMs
-                ? active.Pulse.Progress : 1f;
-        if (litFraction > 0f)
+        var saved = g.Save();
+        try
         {
-            var saved = g.Save();
-            g.SetClip(new RectangleF(grownRect.Left - 1f,
-                grownRect.Top - 2f,
-                grownWidth * litFraction + 2f,
-                grownRect.Height + 4f), CombineMode.Intersect);
-            g.DrawString(wordText, grownFont, singing, grownRect, typographic);
-            g.Restore(saved);
+            // The matrix maps the original ink region onto itself at a
+            // different scale, around one IMMUTABLE physical pivot.
+            // Both X and Y scale symmetrically. No new font or word-width
+            // calculation is performed when the scale changes.
+            using var transform = new Matrix();
+            transform.Translate(-pivot.X, -pivot.Y, MatrixOrder.Append);
+            transform.Scale(wordScale, wordScale, MatrixOrder.Append);
+            transform.Translate(pivot.X, pivot.Y, MatrixOrder.Append);
+            g.MultiplyTransform(transform, MatrixOrder.Append);
+
+            // Clip after applying the matrix so the clip expands WITH the
+            // active word. Paint identical full-row glyphs under that clip.
+            // This preserves original kerning, centering and baseline.
+            g.SetClip(RectangleF.Inflate(inkBounds, 2f, 5f),
+                CombineMode.Intersect);
+            var shadowRect = rowRect;
+            shadowRect.Offset(0.5f, 0.8f);
+            g.DrawString(visualRow.Text, layout.Font, shadow,
+                shadowRect, format);
+            g.DrawString(visualRow.Text, layout.Font, resting,
+                rowRect, format);
+
+            float litFraction = _display.SmoothWordFill &&
+                words[active.WordIndex].EndMs > words[active.WordIndex].AtMs
+                    ? active.Pulse.Progress : 1f;
+            if (litFraction > 0f)
+            {
+                var highlighted = g.Save();
+                try
+                {
+                    var cyanRegion = RectangleF.FromLTRB(
+                        inkBounds.Left - 2f, inkBounds.Top - 5f,
+                        inkBounds.Left + inkBounds.Width *
+                            Math.Clamp(litFraction, 0f, 1f) + 2f,
+                        inkBounds.Bottom + 5f);
+                    g.SetClip(cyanRegion, CombineMode.Intersect);
+                    g.DrawString(visualRow.Text, layout.Font, singing,
+                        rowRect, format);
+                }
+                finally { g.Restore(highlighted); }
+            }
         }
+        finally { g.Restore(saved); }
     }
 
     private void DrawLayout(Graphics g, TextLayout layout,
@@ -2542,16 +2589,16 @@ internal sealed class LyricsCanvas : Control
                 if (startChar >= 0 && endChar <= row.Text.Length &&
                     endChar > startChar)
                 {
-                    float rowWidth = TextWidth(g, row.Text, displayFont);
-                    float rowLeft = LyricRowAlignment.RowLeft(rect.Left,
-                        rect.Width, rowWidth, centered);
-                    float xStart = TextWidth(g, row.Text[..startChar], displayFont);
-                    float xEnd = TextWidth(g, row.Text[..endChar], displayFont);
-                    originalWordMask = g.Save();
-                    g.SetClip(new RectangleF(rowLeft + xStart - 1.5f,
-                        rect.Top - 5f,
-                        Math.Max(2f, xEnd - xStart + 3f),
-                        rect.Height + 10f), CombineMode.Exclude);
+                    var ink = WordInkBounds(g, row.Text, displayFont,
+                        rect, format, startChar, endChar - startChar);
+                    if (!ink.IsEmpty)
+                    {
+                        originalWordMask = g.Save();
+                        // Match the overlay's original source region rather
+                        // than masking a separately measured string prefix.
+                        g.SetClip(RectangleF.Inflate(ink, 2f, 5f),
+                            CombineMode.Exclude);
+                    }
                 }
             }
             try
