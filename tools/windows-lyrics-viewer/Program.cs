@@ -517,7 +517,9 @@ internal sealed class LyricsController : Form
 
     private async Task PollMediaAsync()
     {
-        if (_mediaBusy || _manager == null || IsDisposed) return;
+        if (_mediaBusy || _manager == null || IsDisposed ||
+            (_everHadNativeBridge && (!_bridgeFound || _playerState == 0)))
+            return;
         _mediaBusy = true;
         try
         {
@@ -539,17 +541,33 @@ internal sealed class LyricsController : Form
             }
             var props = session == null ? null : await session.TryGetMediaPropertiesAsync();
 
-            // The native bridge identifies the actual Foobar track.
-            // Windows GSMTC can publish an incomplete artist/album or lag
-            // behind the Foobar track-change generation.
-            bool nativeCurrent = _nativeTags.TryRead(out var tags) &&
-                tags.Generation == _lastFoobarTrackGeneration &&
-                !string.IsNullOrWhiteSpace(tags.Title);
-            string title = nativeCurrent ? tags.Title : (props?.Title ?? "").Trim();
-            // An empty Foobar tag must NOT be filled with stale Windows
-            // metadata belonging to the previously played song.
-            string artist = nativeCurrent ? tags.Artist : (props?.Artist ?? "").Trim();
-            string album = nativeCurrent ? tags.Album : (props?.AlbumTitle ?? "").Trim();
+            // The native bridge is authoritative whenever one has been
+            // observed. GSMTC may still report the PREVIOUS track for a
+            // little while after Foobar exits/restarts.
+            NativeTagSample? tags = _nativeTags.TryRead(out var sample)
+                ? sample : null;
+            bool nativeCurrent = FoobarSessionSafety.AcceptNativeTags(
+                _bridgeFound && _clockUsable, _playerState,
+                _lastFoobarTrackGeneration, tags);
+            if (_everHadNativeBridge && !nativeCurrent)
+            {
+                _notice = "Waiting for Foobar's current song identity…";
+                return;
+            }
+            // Do not load a new lyric document until the native writer's
+            // clock agrees with the metadata generation. A restarted
+            // Foobar may have reused the same number on bridge v0.3.
+            if (nativeCurrent &&
+                (!_bridge.TryRead(out var currentClock) ||
+                 !PlaybackClockHealth.Fresh(
+                     Environment.TickCount64, currentClock.TickMs) ||
+                 currentClock.Generation != tags!.Generation ||
+                 currentClock.State == 0))
+                return;
+
+            string title = nativeCurrent ? tags!.Title : (props?.Title ?? "").Trim();
+            string artist = nativeCurrent ? tags!.Artist : (props?.Artist ?? "").Trim();
+            string album = nativeCurrent ? tags!.Album : (props?.AlbumTitle ?? "").Trim();
             if (title.Length == 0)
             {
                 _notice = "Waiting for Foobar2000 song metadata.";
@@ -558,8 +576,11 @@ internal sealed class LyricsController : Form
 
             // Read duration from Foobar directly before constructing the
             // provider request; zero-duration GSMTC is not authoritative.
-            if (_bridge.TryRead(out var live) && live.DurationMs > 0 &&
-                (!nativeCurrent || live.Generation == tags.Generation))
+            if (_bridgeFound && _bridge.TryRead(out var live) &&
+                PlaybackClockHealth.Fresh(
+                    Environment.TickCount64, live.TickMs) &&
+                live.DurationMs > 0 &&
+                (!nativeCurrent || live.Generation == tags!.Generation))
                 _durationMs = (long)live.DurationMs;
 
             if (title == _song && artist == _artist && album == _album &&
@@ -615,7 +636,8 @@ internal sealed class LyricsController : Form
 
     private void ProcessNativeArtwork()
     {
-        if (IsDisposed || _manualArtworkForTrack ||
+        if (IsDisposed || !_bridgeFound || _playerState == 0 ||
+            _manualArtworkForTrack ||
             !_nativeArtwork.TryRead(out var sample))
             return;
 
