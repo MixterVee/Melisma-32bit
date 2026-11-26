@@ -18,6 +18,8 @@
     <Compile Include="../LrcParser.cs" Link="LrcParser.cs" />
     <Compile Include="../LyricWordSpacing.cs" Link="LyricWordSpacing.cs" />
     <Compile Include="../ActiveWordPulse.cs" Link="ActiveWordPulse.cs" />
+    <Compile Include="../LyricAnimationStyles.cs" Link="LyricAnimationStyles.cs" />
+    <Compile Include="LyricAnimationTests.cs" />
     <Compile Include="../LyricsInterlude.cs" Link="LyricsInterlude.cs" />
     <Compile Include="../AndroidLyricMotion.cs" Link="AndroidLyricMotion.cs" />
     <Compile Include="../LyricRowAlignment.cs" Link="LyricRowAlignment.cs" />
