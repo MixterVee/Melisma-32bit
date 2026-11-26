@@ -1,3 +1,41 @@
+# Melisma Universal Windows v0.6.19 — selectable karaoke animations (test build)
+
+Build on the user-approved **v0.6.18** lyrics / third-dot / scrolling baseline. The new effects only decorate currently sung, real word-timed lyrics. No word timestamps, audio, album art, song-offset values or MP3 files change.
+
+### Select the style
+
+Open **Display… → Lyrics display → Animation style**. The selector saves immediately to the normal per-user Windows display settings and affects both the controller preview and TV second-screen projection.
+
+| Style | Behavior |
+|---|---|
+| **Android-style enlargement** (default) | The existing v0.6.16 original-glyph, pivot-anchored spring enlargement is unchanged |
+| **Bouncing ball** | A cyan ball travels smoothly from the previous word and bounces above the current word, touching down before the next word |
+| **Underline** | A short, softly glowing cyan underline moves from left to right beneath the actual active word |
+| **Glow** | A soft halo brightens and recedes around the existing stationary word; the text remains crisp and the same size |
+| **Highlight only** | Word/line cyan highlighting with no added word animation |
+
+Style changes persist after restarting Windows Melisma and don't require a restart. Existing v0.6.18 installations with enlargement disabled migrate to Highlight only; otherwise Android-style enlargement remains the default. The old **Enlarge sung word** toggle is replaced by this selector to avoid conflicting controls.
+
+### Sync and fallbacks
+
+- **TTML/YRC and other true word-timed lyrics:** animation follows Foobar's playhead and source word onset/end; the existing smooth cyan word fill remains independently selectable.
+- **Enhanced LRC with word onsets only:** movement is a short presentation pulse, without inventing lyric end timestamps.
+- **Line-timed or plain text:** no fake word-level movement. Regular line highlighting or clearly labeled static text remains available.
+- No change to Android-style three-dot interludes, their landing timing, 420ms after-gap scroll, centered Lyrics view, Cinema view, v0.6.13 native Foobar Bridge v0.3 artwork selection, or the adaptive CPU refresh.
+- The animated glyph enlargement uses the exact established pivot renderer. Ball, underline, and glow **do not** resize or shift the lyric text itself.
+
+### Acceptance checklist
+
+1. Extract Windows v0.6.19 into a separate folder; retain v0.6.18 as a backup. Foobar Bridge v0.3 remains installed.
+2. Play a genuinely word-timed song such as *…Ready For It?*, switch among all five styles while playing, and ensure each visibly responds to the sung word without altering the Foobar timing or scrolling.
+3. For the bouncing ball, watch the ball travel between neighboring words and bounce once per word. For underline, check the sweep stays beneath its word. For glow, the word should remain stationary while its halo pulses. Highlight only should show no decorative motion.
+4. Close and reopen Windows Melisma and confirm the last selected style was retained. Open the second screen and confirm it uses the same style.
+5. Recheck the third dot's final landing and the scroll handoff in a long instrumental intro. Inspect CPU and cover-art crossfades for regressions.
+
+**Limitations:** Automated tests cover the motion formulas and source timing; actual on-screen smoothness and clarity require visual confirmation on a Windows machine.
+
+---
+
 # Melisma Universal Windows v0.6.18 — hold position until third dot finishes
 
 The user confirmed that v0.6.17's third dot **now drops**, but the lyric viewport scrolls upward **before that downward movement finishes**.

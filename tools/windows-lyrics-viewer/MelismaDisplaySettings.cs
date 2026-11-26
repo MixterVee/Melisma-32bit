@@ -48,7 +48,11 @@ internal sealed class MelismaDisplaySettings
     public bool SmoothWordFill { get; set; } = true;
     // Match Android TV's gentle scale/lift emphasis on the timed word.
     // The line position and wrapping remain fixed while a word swells.
+    // Preserve old preference for migrating v0.6.18 display-settings.json.
+    // New builds use AnimationStyle as the authoritative choice.
     public bool GrowActiveWord { get; set; } = true;
+    public MelismaLyricAnimation AnimationStyle { get; set; } =
+        MelismaLyricAnimation.AndroidEnlargement;
     public bool MinimalMode { get; set; } = false;
 
     public string FontFamily => Font switch
@@ -65,8 +69,17 @@ internal sealed class MelismaDisplaySettings
         try
         {
             if (!File.Exists(PathOnDisk)) return new();
+            string json = File.ReadAllText(PathOnDisk);
             var settings = JsonSerializer.Deserialize<MelismaDisplaySettings>(
-                File.ReadAllText(PathOnDisk), Json) ?? new();
+                json, Json) ?? new();
+            // Existing users who turned off word enlargement should not
+            // suddenly get animated words when this selector is introduced.
+            // A new explicit AnimationStyle always takes precedence.
+            using (var document = JsonDocument.Parse(json))
+                if (document.RootElement.ValueKind == JsonValueKind.Object &&
+                    !document.RootElement.TryGetProperty(
+                        nameof(AnimationStyle), out _) && !settings.GrowActiveWord)
+                    settings.AnimationStyle = MelismaLyricAnimation.HighlightOnly;
             settings.CoverBlur = Math.Clamp(settings.CoverBlur, 0, 67);
             settings.IdleLivingDelaySeconds = Math.Clamp(
                 settings.IdleLivingDelaySeconds, 10, 15);
@@ -78,6 +91,8 @@ internal sealed class MelismaDisplaySettings
             if (!Enum.IsDefined(settings.ArtworkSide)) settings.ArtworkSide = ArtworkPanelSide.Left;
             if (!Enum.IsDefined(settings.Background)) settings.Background = MelismaBackgroundStyle.CoverArt;
             if (!Enum.IsDefined(settings.Font)) settings.Font = MelismaLyricsFont.System;
+            if (!Enum.IsDefined(settings.AnimationStyle))
+                settings.AnimationStyle = MelismaLyricAnimation.AndroidEnlargement;
             return settings;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
@@ -196,15 +211,24 @@ internal sealed class MelismaDisplaySettingsForm : Form
             value => settings.SimpleMode = value);
         Toggle(lyrics, "Smooth word fill (real timestamps)", settings.SmoothWordFill,
             value => settings.SmoothWordFill = value);
-        Toggle(lyrics, "Enlarge sung word (Android style)", settings.GrowActiveWord,
-            value => settings.GrowActiveWord = value);
+        Choice(lyrics, "Animation style",
+            ["Android-style enlargement", "Bouncing ball", "Underline",
+             "Glow", "Highlight only (no motion)"],
+            (int)settings.AnimationStyle, i =>
+            {
+                settings.AnimationStyle = (MelismaLyricAnimation)i;
+                // Compatibility field retained for older settings readers.
+                settings.GrowActiveWord =
+                    settings.AnimationStyle == MelismaLyricAnimation.AndroidEnlargement;
+            });
         Toggle(lyrics, "Minimal mode (hide sung lines)", settings.MinimalMode,
             value => settings.MinimalMode = value);
-        Note(lyrics, "Word fill and active-word grow use genuine TTML/YRC " +
-            "timestamps (or enhanced-LRC onsets). Word enlargement is visual " +
-            "only and does not shift or rewrap lyric lines. With line-timed " +
-            "lyrics, the usual line emphasis remains. Both displays use " +
-            "these settings.");
+        Note(lyrics, "Animation style is saved and applies to both displays. " +
+            "Android-style enlargement remains the default. The bouncing ball, " +
+            "underline and glow follow genuine TTML/YRC word timing or " +
+            "enhanced-LRC onsets; they never invent timestamps. " +
+            "Line-only lyrics retain normal line highlighting. " +
+            "Highlight only disables animated word effects.");
 
         var bottom = new Panel { Dock = DockStyle.Bottom, Height = 51,
             BackColor = Color.FromArgb(17, 23, 39) };
