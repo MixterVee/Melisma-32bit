@@ -29,7 +29,7 @@ internal sealed record LrcLine(long AtMs, string Text, IReadOnlyList<LrcWord>? W
 internal sealed record LyricFrame(
     IReadOnlyList<LrcLine> Lines, int ActiveIndex,
     string Song, string Artist, string Message, long LyricPositionMs,
-    string Source, string? PlainLyrics = null);
+    string Source, string? PlainLyrics = null, ulong TrackEpoch = 0);
 
 internal sealed class LyricsController : Form
 {
@@ -76,6 +76,7 @@ internal sealed class LyricsController : Form
     private long _lastClockLabelTick;
     private ulong _lastFoobarTrackGeneration;
     private ulong _lastLoadedGeneration;
+    private ulong _trackVisualEpoch;
     private long _lastMetadataRetry;
 
     // Secondary Windows media-session timeline, usable when Foobar's
@@ -99,7 +100,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.21";
+        Text = "Melisma Universal · Windows v0.6.22";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -288,6 +289,10 @@ internal sealed class LyricsController : Form
     // It prevents a stopped/older document from scrolling to new audio.
     private void InvalidateTrack(string message, bool clearArtwork)
     {
+        // Track identities are distinct even if two plays have identical
+        // title, artist and cached lyric timestamps. Canvas uses this epoch
+        // to restart its 750ms lyric fade on each new playback document.
+        ++_trackVisualEpoch;
         _searchCancellation?.Cancel();
         _searchCancellation?.Dispose();
         _searchCancellation = null;
@@ -906,7 +911,8 @@ internal sealed class LyricsController : Form
         }
         return new LyricFrame(_lines, current,
             _song.Length > 0 ? _song : "Melisma Karaoke",
-            _artist, _notice, lyricMs, _source, _plainLyrics);
+            _artist, _notice, lyricMs, _source, _plainLyrics,
+            _trackVisualEpoch);
     }
 
     private void ToggleSecondScreen(object? sender, EventArgs e)
@@ -1598,8 +1604,23 @@ internal sealed class AlbumArtworkState : IDisposable
             next = new Bitmap(decoded);
         }
 
+        // Bridge v0.4 reconnects safely, but an intervening stop used to
+        // call Replace(null). A rapid reopen then replaced that *null*
+        // current image, disposing the still-visible outgoing cover and
+        // making the replacement pop/fade in against a blank panel.
+        //
+        // Preserve the prior bitmap only while either user-configured
+        // fade is still running. Never reuse it once both durations expire.
+        if (next == null && _current == null) return;
+        Bitmap? outgoing = _current;
+        if (outgoing == null && _previous != null &&
+            CoverFade.ReuseOutgoingAfterStop(Progress, PanelProgress))
+        {
+            outgoing = _previous;
+            _previous = null; // transfer ownership, don't dispose bitmap
+        }
         _previous?.Dispose();
-        _previous = _current;
+        _previous = outgoing;
         _current = next;
         _transitionTick = Environment.TickCount64;
     }
@@ -1787,9 +1808,9 @@ internal sealed class LyricsCanvas : Control
 
         // A successful cache/provider result becomes readable right away.
         // Fade only the presentation; the actual lyric times stay unchanged.
-        string documentKey = frame.Song + "\u001f" + frame.Artist + "\u001f" +
-            frame.Lines.Count + "\u001f" + frame.Lines[0].AtMs +
-            "\u001f" + frame.Lines[^1].AtMs;
+        string documentKey = LyricPreviewMotion.DocumentKey(
+            frame.TrackEpoch, frame.Song, frame.Artist,
+            frame.Lines.Count, frame.Lines[0].AtMs, frame.Lines[^1].AtMs);
         long paintTick = Environment.TickCount64;
         if (_revealedDocumentKey != documentKey)
         {
