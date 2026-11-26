@@ -71,6 +71,32 @@ internal static class AndroidInterludeRow
     internal static float DotLift(float t) =>
         t <= 0.9f ? -0.12f * Ease(t / 0.9f)
             : -0.12f * (1f - Ease((t - 0.9f) / 0.1f));
+
+    // Android's third dot completes its 500ms-prehide sequence before the
+    // next vocal. The Windows port hid the row while the damped Y-offset
+    // spring still had a negative (raised) value. Add a deterministic landing
+    // envelope near the end of the REAL lyric gap so the dot visibly returns
+    // to the baseline before it disappears. It never changes lyric timing.
+    internal const int FinalLandingWindowMs = 650;
+    internal const int FinalLandingHoldMs = 120;
+    internal const int FinalExitFadeMs = 110;
+
+    internal static float FinalDotLandingFactor(InterludeSpan gap, long positionMs)
+    {
+        long remaining = gap.EndMs - positionMs;
+        if (remaining >= FinalLandingWindowMs) return 1f;
+        if (remaining <= FinalLandingHoldMs) return 0f;
+        return Ease((remaining - FinalLandingHoldMs) /
+            (float)(FinalLandingWindowMs - FinalLandingHoldMs));
+    }
+
+    internal static float FinalDotsOpacity(InterludeSpan gap, long positionMs)
+    {
+        // Keep the final *landed* dot briefly in view, then hand off to the
+        // incoming lyric rather than vanishing while still lifted.
+        long remaining = gap.EndMs - positionMs;
+        return Ease(remaining / (float)FinalExitFadeMs);
+    }
     internal static float DotOpacity(float t, bool simple) =>
         (simple ? 0.27f : 0.35f) +
         (1f - (simple ? 0.27f : 0.35f)) * Ease(t / 0.6f);

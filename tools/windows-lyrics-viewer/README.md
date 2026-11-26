@@ -1,3 +1,17 @@
+# Melisma Windows v0.6.17 — third-dot landing fix
+
+The uploaded video `2026-11-25_20h26_02.mp4` shows the third interlude dot still raised just before the lyrics resume in v0.6.16, though the individual-word enlargement looks improved.
+
+**Cause:** Windows copied Android's three timing windows, but hid the dot row 500ms before the next vocal while the third dot's vertical spring was still raised. It also faded out the dots before the landing could finish.
+
+**Fix:** The Windows renderer now keeps the dot row visible through a smooth landing and fades it only in the final 110ms before the real next-line timestamp. The third dot's raised spring offset is eased down to its original baseline by 120ms before vocals. Android's one-third-gap timing, left-aligned dot row, and word motion remain unchanged. No lyric timestamps, audio, track delay or files are altered.
+
+**Test:** Play `…Ready For It?` through the gap immediately before “Knew I was a robber first…” (about 26–31 seconds into the submitted clip). The third dot should visibly lower onto the same baseline as the other two before the first word turns cyan. Also test pausing and seeking near the end of another long instrumental introduction.
+
+This is a CI test build; the actual Windows animation still requires visual confirmation.
+
+---
+
 # Melisma Universal Windows v0.6.16 — stationary word enlargement
 
 ## Correct the lateral drift still visible in v0.6.15

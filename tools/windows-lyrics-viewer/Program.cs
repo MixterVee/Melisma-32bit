@@ -97,7 +97,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.16";
+        Text = "Melisma Universal · Windows v0.6.17";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -1581,8 +1581,10 @@ internal sealed class LyricsCanvas : Control
         var interludeWindow = LyricsInterlude.Around(frame.Lines,
             frame.LyricPositionMs);
         bool inGap = interludeWindow.HasValue;
-        bool showDots = LyricsInterlude.At(frame.Lines,
-            frame.LyricPositionMs).HasValue;
+        // Keep the dot row visible into its final landing. v0.6.16
+        // stopped painting 500ms early, while its Y spring was raised.
+        // The final dot now rests on its baseline just before vocals start.
+        bool showDots = inGap;
 
         // A successful cache/provider result becomes readable right away.
         // Fade only the presentation; the actual lyric times stay unchanged.
@@ -1814,8 +1816,10 @@ internal sealed class LyricsCanvas : Control
             FormatFlags = StringFormatFlags.NoWrap
         };
 
-        long remain = gap.EndMs - AndroidInterludeRow.PreHideMs - positionMs;
-        float outOpacity = Math.Clamp(remain / 240f, 0f, 1f);
+        // The original Android dot timings still end 500ms before vocals,
+        // leaving a short settle interval. Do not fade out that entire
+        // interval as Windows did: the final dot must be SEEN landing.
+        float outOpacity = AndroidInterludeRow.FinalDotsOpacity(gap, positionMs);
         for (int i = 0; i < 3; i++)
         {
             float t = AndroidInterludeRow.DotProgress(gap, positionMs, i);
@@ -1824,6 +1828,8 @@ internal sealed class LyricsCanvas : Control
             _dotOpacity[i].SetGoal(AndroidInterludeRow.DotOpacity(t, _display.SimpleMode));
             float scale = Math.Clamp(_dotScale[i].Step(dt), 0.65f, 1.2f);
             float lift = _dotLift[i].Step(dt) * dotFontPx;
+            if (i == 2)
+                lift *= AndroidInterludeRow.FinalDotLandingFactor(gap, positionMs);
             float alpha = Math.Clamp(_dotOpacity[i].Step(dt) * reveal *
                 outOpacity, 0f, 1f);
             if (alpha < 0.01f) continue;
