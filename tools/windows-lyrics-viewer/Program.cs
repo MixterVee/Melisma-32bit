@@ -97,7 +97,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.18";
+        Text = "Melisma Universal · Windows v0.6.19";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -215,7 +215,8 @@ internal sealed class LyricsController : Form
             bool timedWord = _playerState == 1 && current.ActiveIndex >= 0 &&
                 current.ActiveIndex < current.Lines.Count &&
                 current.Lines[current.ActiveIndex].Words is { Count: > 0 } &&
-                (_display.GrowActiveWord || _display.SmoothWordFill);
+                (LyricAnimationMotion.RequiresWordGeometry(
+                    _display.AnimationStyle) || _display.SmoothWordFill);
             int interval = timedWord ? 25 :
                 _playerState == 1 && current.Lines.Count > 0 ? 65 :
                 _playerState == 1 ? 75 : 120;
@@ -1725,15 +1726,28 @@ internal sealed class LyricsCanvas : Control
             // Do not delay the beginning of word growth until 70% of the
             // line scroll animation: that gate suddenly switched from the
             // base font to the enlarged overlay mid-word (a visible pop).
-            AnimatedWord? animated = _display.GrowActiveWord && !inGap &&
-                index == active
+            var style = _display.AnimationStyle;
+            AnimatedWord? animated = !inGap && index == active &&
+                LyricAnimationMotion.RequiresWordGeometry(style)
                     ? LocateAnimatedWord(layout, line, frame.LyricPositionMs)
                     : null;
+            // Only Android enlargement masks/replaces the original word.
+            // Ball, underline and glow decorate the existing full-size row;
+            // Highlight only never adds extra rendering or movement.
+            bool enlarged = animated.HasValue &&
+                LyricAnimationMotion.UsesEnlargement(style);
             DrawLayout(g, layout, y, playedCharacters.HasValue ? Other : color,
-                playedCharacters, emphasis, edgeOpacity * reveal, animated);
+                playedCharacters, emphasis, edgeOpacity * reveal,
+                enlarged ? animated : null);
             if (animated.HasValue)
-                DrawActiveWordOverlay(g, layout, y, line,
-                    animated.Value, emphasis, edgeOpacity * reveal);
+            {
+                if (enlarged)
+                    DrawActiveWordOverlay(g, layout, y, line,
+                        animated.Value, emphasis, edgeOpacity * reveal);
+                else
+                    DrawAlternativeWordEffect(g, layout, y, line,
+                        animated.Value, edgeOpacity * reveal, style);
+            }
         }
 
         if (showDots && upcoming >= 0 &&
@@ -2469,6 +2483,153 @@ internal sealed class LyricsCanvas : Control
         float through = TextWidth(g, rowText[..(start + length)], font);
         return new RectangleF(left + before, rowRect.Top,
             Math.Max(1f, through - before), rowRect.Height);
+    }
+
+    private void DrawAlternativeWordEffect(Graphics g, TextLayout layout,
+        float centerY, LrcLine line, AnimatedWord active,
+        float opacity, MelismaLyricAnimation style)
+    {
+        if (line.Words is not { Count: > 0 } words ||
+            !LyricAnimationMotion.RequiresWordGeometry(style)) return;
+
+        var row = layout.Rows[active.RowIndex];
+        int start = active.Start - row.Start;
+        int length = active.End - active.Start;
+        if (start < 0 || length <= 0 || start + length > row.Text.Length) return;
+
+        float rowTop = centerY - layout.TotalHeight / 2f +
+            active.RowIndex * layout.RowHeight;
+        var rowRect = new RectangleF(LyricsArea.Left + SidePadding,
+            rowTop, Math.Max(1f, LyricsArea.Width - 2f * SidePadding),
+            layout.RowHeight);
+        using var format = new StringFormat(StringFormat.GenericTypographic)
+        {
+            Alignment = _display.Layout == MelismaViewMode.Lyrics
+                ? StringAlignment.Center : StringAlignment.Near,
+            LineAlignment = StringAlignment.Center,
+            FormatFlags = StringFormatFlags.NoWrap
+        };
+        // Use exactly the same full-row text geometry and font as v0.6.18.
+        // The other effects NEVER move or resize the sung word itself.
+        var ink = WordInkBounds(g, row.Text, layout.Font,
+            rowRect, format, start, length);
+        if (ink.IsEmpty) return;
+        var center = ActiveWordGeometry.Pivot(ink);
+        float fontHeight = layout.Font.GetHeight(g);
+        float progress = Math.Clamp(active.Pulse.Progress, 0f, 1f);
+        opacity = Math.Clamp(opacity, 0f, 1f);
+
+        var saved = g.Save();
+        try
+        {
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            switch (style)
+            {
+                case MelismaLyricAnimation.BouncingBall:
+                {
+                    float x = center.X;
+                    // Travel from the preceding word over the first third
+                    // of this word's timing, avoiding a teleport between
+                    // adjacent words in a continuous lyric line.
+                    if (active.WordIndex > 0)
+                    {
+                        int previousIndex = active.WordIndex - 1;
+                        string previous = words[previousIndex].Text;
+                        int priorPrefix = 0;
+                        for (int i = 0; i < previousIndex; i++)
+                            priorPrefix += words[i].Text.Length;
+                        int priorStart = priorPrefix +
+                            (previous.Length - previous.TrimStart().Length);
+                        int priorLength = previous.Trim().Length;
+                        if (priorLength > 0 &&
+                            priorStart >= row.Start &&
+                            priorStart + priorLength <= row.Start + row.Text.Length)
+                        {
+                            var previousInk = WordInkBounds(g, row.Text,
+                                layout.Font, rowRect, format,
+                                priorStart - row.Start, priorLength);
+                            if (!previousInk.IsEmpty)
+                            {
+                                float from = ActiveWordGeometry.Pivot(previousInk).X;
+                                x = from + (x - from) *
+                                    LyricAnimationMotion.BallTravel(progress);
+                            }
+                        }
+                    }
+                    float radius = Math.Clamp(fontHeight * 0.135f, 4f, 10f);
+                    float y = ink.Top - radius * 1.65f -
+                        fontHeight * 0.35f * LyricAnimationMotion.BallLift(progress);
+                    using var aura = new SolidBrush(Color.FromArgb(
+                        (int)(47f * opacity), Highlight));
+                    using var body = new SolidBrush(Color.FromArgb(
+                        (int)(245f * opacity), Highlight));
+                    using var glint = new SolidBrush(Color.FromArgb(
+                        (int)(230f * opacity), Color.White));
+                    g.FillEllipse(aura, x - radius * 1.75f,
+                        y - radius * 1.75f, radius * 3.5f, radius * 3.5f);
+                    g.FillEllipse(body, x - radius, y - radius,
+                        radius * 2f, radius * 2f);
+                    g.FillEllipse(glint, x - radius * 0.42f,
+                        y - radius * 0.52f, radius * 0.50f, radius * 0.50f);
+                    break;
+                }
+                case MelismaLyricAnimation.Underline:
+                {
+                    var (from, to) = LyricAnimationMotion.Underline(progress);
+                    float x1 = ink.Left + ink.Width * from;
+                    float x2 = ink.Left + ink.Width * to;
+                    float y = ink.Bottom + Math.Clamp(fontHeight * 0.10f,
+                        3f, 7f);
+                    if (x2 - x1 < 0.5f) break;
+                    using var aura = new Pen(Color.FromArgb(
+                        (int)(76f * opacity), Highlight), 6f);
+                    using var linePen = new Pen(Color.FromArgb(
+                        (int)(245f * opacity), Highlight), 2.7f);
+                    aura.StartCap = aura.EndCap = LineCap.Round;
+                    linePen.StartCap = linePen.EndCap = LineCap.Round;
+                    g.DrawLine(aura, x1, y, x2, y);
+                    g.DrawLine(linePen, x1, y, x2, y);
+                    break;
+                }
+                case MelismaLyricAnimation.Glow:
+                {
+                    float intensity = LyricAnimationMotion.Glow(progress) *
+                        opacity;
+                    var haloBounds = RectangleF.Inflate(ink,
+                        Math.Clamp(fontHeight * 0.35f, 9f, 19f),
+                        Math.Clamp(fontHeight * 0.18f, 6f, 14f));
+                    using var path = new GraphicsPath();
+                    path.AddEllipse(haloBounds);
+                    using var aura = new PathGradientBrush(path)
+                    {
+                        CenterColor = Color.FromArgb(
+                            (int)(97f * intensity), Highlight),
+                        SurroundColors = [Color.FromArgb(0, Highlight)]
+                    };
+                    g.FillPath(aura, path);
+
+                    // Restore crisp, legible ink above the halo using the
+                    // SAME complete-line layout, without scaling the text.
+                    var glyphState = g.Save();
+                    try
+                    {
+                        g.SetClip(RectangleF.Inflate(ink, 1.5f, 2f),
+                            CombineMode.Intersect);
+                        using var bright = new SolidBrush(Color.FromArgb(
+                            (int)(225f * opacity), Color.White));
+                        g.DrawString(row.Text, layout.Font, bright,
+                            rowRect, format);
+                    }
+                    finally { g.Restore(glyphState); }
+                    break;
+                }
+                case MelismaLyricAnimation.HighlightOnly:
+                case MelismaLyricAnimation.AndroidEnlargement:
+                default:
+                    break;
+            }
+        }
+        finally { g.Restore(saved); }
     }
 
     private void DrawActiveWordOverlay(Graphics g, TextLayout layout,
