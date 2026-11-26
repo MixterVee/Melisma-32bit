@@ -928,6 +928,8 @@ internal sealed class LyricsController : Form
             searchFor == _loadedFor;
 
         string? plainSpacingReference = null;
+        int restoredFromReference = 0;
+        string lastSpacingReference = "";
 
         void RepairVisibleCachedSpacing(
             IReadOnlyList<LrcLine>? lineReference, string? plainReference,
@@ -947,6 +949,8 @@ internal sealed class LyricsController : Form
             cached = cached with { Lines = repaired };
             _lyricCache.Save(title, artist, album, duration,
                 cached.SourceId, cached.SourceName, repaired);
+            restoredFromReference += count;
+            lastSpacingReference = referenceName;
             _statusLabel.Text = "Word-synced · Spacing restored · " + cached.SourceName;
             _notice = $"Restored word spacing on {count} lines using {referenceName}";
             _lookupReport += $"\nWord spacing repaired on {count} cached lines " +
@@ -1028,7 +1032,14 @@ internal sealed class LyricsController : Form
                 (cached != null
                     ? "\nDisplayed immediately from cached source: " + cached.SourceName
                     : "") +
-                "\n\nOnly genuine source timestamps are used.";
+                "\n\nOnly genuine source timestamps are used." +
+                (restoredFromReference > 0
+                    ? $"\nCached word spacing repaired on {restoredFromReference} lines " +
+                        $"from {lastSpacingReference}; word timestamps unchanged."
+                    : complete && LyricWordSpacing.NeedsRepair(_lines)
+                        ? "\nSome English timed lines appear to lack spaces, but no " +
+                          "matching trustworthy lyric text was available to repair them."
+                        : "");
 
             if (!hasLines)
             {
