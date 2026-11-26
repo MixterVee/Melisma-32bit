@@ -97,7 +97,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.19";
+        Text = "Melisma Universal · Windows v0.6.20";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -914,17 +914,83 @@ internal sealed class LyricsController : Form
             // Android does not hammer every provider on every replay.
             // Background improvement for lower-tier results is attempted
             // just once per running session, never before showing the cache.
-            if (cached.WordTimed || !_upgradedCacheThisSession.Add(searchFor)) return;
+            // Word-timed cache entries ordinarily need no fresh lookup.
+            // Exception: some older cached YRC/QRC sources have missing
+            // English spaces. Check providers ONCE this app session for
+            // an authoritative text reference, while displaying the cache
+            // immediately and preserving its accurate word timestamps.
+            if ((cached.WordTimed && !LyricWordSpacing.NeedsRepair(cached.Lines)) ||
+                !_upgradedCacheThisSession.Add(searchFor)) return;
         }
 
         bool CurrentSearch() =>
             !token.IsCancellationRequested && !IsDisposed &&
             searchFor == _loadedFor;
 
+        string? plainSpacingReference = null;
+        int restoredFromReference = 0;
+        string lastSpacingReference = "";
+
+        void RepairVisibleCachedSpacing(
+            IReadOnlyList<LrcLine>? lineReference, string? plainReference,
+            string referenceName)
+        {
+            if (!CurrentSearch() ||
+                cached is not { WordTimed: true } ||
+                !LyricWordSpacing.NeedsRepair(_lines)) return;
+
+            var (repaired, count) = lineReference is { Count: > 0 }
+                ? LyricWordSpacing.Restore(_lines, lineReference)
+                : LyricWordSpacing.RestoreFromPlain(_lines, plainReference);
+            if (count <= 0) return;
+
+            _lines.Clear();
+            _lines.AddRange(repaired);
+            cached = cached with { Lines = repaired };
+            _lyricCache.Save(title, artist, album, duration,
+                cached.SourceId, cached.SourceName, repaired);
+            restoredFromReference += count;
+            lastSpacingReference = referenceName;
+            _statusLabel.Text = "Word-synced · Spacing restored · " + cached.SourceName;
+            _notice = $"Restored word spacing on {count} lines using {referenceName}";
+            _lookupReport += $"\nWord spacing repaired on {count} cached lines " +
+                $"from {referenceName}; original word timestamps preserved.";
+            _preview.Invalidate();
+            _projection?.Redraw();
+        }
+
+        LyricsSourceOrchestrator.Lookup ApplyPlainSpacing(
+            LyricsSourceOrchestrator.Lookup value)
+        {
+            if (string.IsNullOrWhiteSpace(plainSpacingReference) ||
+                value.Best is not { WordTimed: true, Lines: { Count: > 0 } } best)
+                return value;
+            var (repaired, count) = LyricWordSpacing.RestoreFromPlain(
+                best.Lines, plainSpacingReference);
+            return count > 0
+                ? value with { Best = best with { Lines = repaired,
+                    Reason = best.Reason +
+                        $"; spacing corrected on {count} lines from LRCLIB plain text" },
+                    Report = value.Report + $"\nWord spacing restored on {count} " +
+                        "matching lines from LRCLIB plain text (timestamps unchanged)." }
+                : value;
+        }
+
         void Present(LyricsSourceOrchestrator.Lookup result, bool complete)
         {
             if (!CurrentSearch()) return;
             var best = result.Best;
+            if (cached is { WordTimed: true } &&
+                LyricWordSpacing.NeedsRepair(_lines))
+            {
+                var references = result.All
+                    .Where(answer => answer.Id != cached.SourceId &&
+                        answer.Lines is { Count: > 0 })
+                    .SelectMany(answer => answer.Lines!)
+                    .ToList();
+                RepairVisibleCachedSpacing(references, null,
+                    "another synchronized lyric source");
+            }
             long elapsed = Math.Max(0, Environment.TickCount64 - searchStartedTick);
             bool hasLines = best is { Lines: { Count: > 0 } };
             // Never replace a good cached word-synced song with a slower
@@ -966,7 +1032,14 @@ internal sealed class LyricsController : Form
                 (cached != null
                     ? "\nDisplayed immediately from cached source: " + cached.SourceName
                     : "") +
-                "\n\nOnly genuine source timestamps are used.";
+                "\n\nOnly genuine source timestamps are used." +
+                (restoredFromReference > 0
+                    ? $"\nCached word spacing repaired on {restoredFromReference} lines " +
+                        $"from {lastSpacingReference}; word timestamps unchanged."
+                    : complete && LyricWordSpacing.NeedsRepair(_lines)
+                        ? "\nSome English timed lines appear to lack spaces, but no " +
+                          "matching trustworthy lyric text was available to repair them."
+                        : "");
 
             if (!hasLines)
             {
@@ -1017,8 +1090,15 @@ internal sealed class LyricsController : Form
                     var synced = await Lrclib.FindAsync(
                         title, artist, album, duration, ct, plain =>
                         {
-                            if (!CurrentSearch() || _lines.Count > 0 ||
+                            if (!CurrentSearch() ||
                                 string.IsNullOrWhiteSpace(plain)) return;
+                            plainSpacingReference = plain;
+                            RepairVisibleCachedSpacing(null, plain,
+                                "matching LRCLIB plain lyrics");
+                            // Never replace working timed lyrics with an
+                            // untimed fallback. Plain text may still repair
+                            // their word spacing, without changing timing.
+                            if (_lines.Count > 0) return;
                             _plainLyrics = plain;
                             _source = "LRCLIB plain lyrics";
                             _statusLabel.Text = "Plain lyrics · Seeking timed lyrics";
@@ -1029,7 +1109,9 @@ internal sealed class LyricsController : Form
                                 _lyricCache.SavePlain(title, artist, album, duration, plain);
                         });
                     return synced == null ? null : LrcParser.Parse(synced);
-                }, token, partial => Present(partial, complete: false));
+                }, token, partial =>
+                    Present(ApplyPlainSpacing(partial), complete: false));
+            lookup = ApplyPlainSpacing(lookup);
             Present(lookup, complete: true);
             // Store only the final selected successful result, never
             // provisional incomplete data or failed/network-timeout states.
@@ -1056,7 +1138,7 @@ internal sealed class LyricsController : Form
     {
         var client = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd(
-            "MelismaWindows/0.6.10 (Windows; https://github.com/MixterVee/Melisma-32bit)");
+            "MelismaWindows/0.6.20 (Windows; https://github.com/MixterVee/Melisma-32bit)");
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         return client;
     }

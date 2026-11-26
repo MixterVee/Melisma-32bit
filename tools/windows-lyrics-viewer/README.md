@@ -1,3 +1,29 @@
+# Melisma Universal Windows v0.6.20 — missing English word spaces
+
+## Report
+
+With v0.6.19 animations working well, **Travelin' Soldier — Dixie Chicks** displays lines like **“Hewaswaitin'forthe”** and **“businhisarmygreens”** without the spaces they need for readability. The font/animation itself should NOT be changed.
+
+## Root cause and fix
+
+- Some provider word-timing payloads preserve each syllable's start/end time but omit spaces between whole English words. Melisma Windows was concatenating those tokens as instructed by the source.
+- The existing `LyricWordSpacing.Restore` could add spaces only when a **second synchronized lyric source** had a complete, matching line within 12 seconds. It ignored legitimate **plain** LRCLIB text as a spelling/spacing reference.
+- **NetEase YRC** frequently comes with correctly spaced **LRC in the same HTTP response**. The provider now uses that own-track LRC to restore exactly matching YRC lines before returning/caching them.
+- **Any word-timed provider:** When LRCLIB offers an exact matching plain-text lyric line, use only its **whitespace boundaries** to realign existing timed tokens. No guessing from dictionaries, no borrowed lyrics from other recordings, and no manufactured/scrambled timestamps. Repeated lines with conflicting space placement are deliberately ignored.
+- **Old cache repair:** Existing successfully cached word-timed documents with suspiciously concatenated English segments still display immediately, but get **one background reference check per app session** instead of being skipped permanently. When matching text appears, fix only the visible line's spaces and update the on-disk cache. Replays then remain instant.
+- If no trustworthy matching reference is found, the text remains unchanged rather than splitting legitimate syllables incorrectly. Open **Sources…** for a diagnostic note explaining why the spacing could not be restored.
+
+### Verify
+
+1. Keep v0.6.19 as backup, extract v0.6.20 separately, and play **Travelin' Soldier** from the beginning. Some cached lines may initially be joined while the background reference check runs; once a matching reference arrives they should become readable without altering cyan word motion.
+2. Replay the song: corrected spacing should load immediately from disk; check **Sources…** for spacing repair details.
+3. Test **…Ready For It?** and **Edamame** for already well-spaced lyrics, fast startup, word animations, final three-dot landing and album art. Those effects should be unchanged.
+4. If lines remain collapsed, send **Sources…** diagnostics so we can distinguish an unavailable reference source from a particular provider's malformed words. A screenshot alone does not identify the source.
+
+Automated tests cover the user's joined-word example, exact normalized text matching, ambiguity rejection, and identical original word timestamps. Visual testing on Windows remains required.
+
+---
+
 # Melisma Universal Windows v0.6.19 — selectable karaoke animations (test build)
 
 Build on the user-approved **v0.6.18** lyrics / third-dot / scrolling baseline. The new effects only decorate currently sung, real word-timed lyrics. No word timestamps, audio, album art, song-offset values or MP3 files change.

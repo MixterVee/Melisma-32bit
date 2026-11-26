@@ -70,6 +70,56 @@ internal static class WordSpacingTests
             wrongWords, []);
         check(missingCount == 0 && noProvider[0].Text == wrongWords[0].Text,
             "Missing reference does not create guessed spaces");
+        // Regression from the user's Travelin' Soldier screenshot: genuine
+        // provider word timing exists, but several English lyric lines
+        // were cached as uninterrupted character runs.
+        var soldier = new List<LrcLine>
+        {
+            new(19500, "Hewaswaitin'forthe",
+                Timed(19500, "He", "was", "waitin'", "for", "the")),
+            new(21800, "businhisarmygreens",
+                Timed(21800, "bus", "in", "his", "army", "greens")),
+            new(24400, "Satdowninabooth",
+                Timed(24400, "Sat", "down", "in", "a", "booth"))
+        };
+        check(LyricWordSpacing.NeedsRepair(soldier),
+            "Screenshot: cached word-timed joined English lyrics are flagged for reference repair");
+        var plainText = "He was waitin' for the\\nbus in his army greens\\nSat down in a booth";
+        var (restoredPlain, plainFixed) = LyricWordSpacing.RestoreFromPlain(
+            soldier, plainText.Replace("\\n", "\n"));
+        check(plainFixed == 3,
+            "Matching untimed LRCLIB lines repair all three English word boundaries");
+        check(restoredPlain[0].Text == "He was waitin' for the" &&
+              restoredPlain[1].Text == "bus in his army greens" &&
+              restoredPlain[2].Text == "Sat down in a booth",
+            "Spaces are displayed exactly as written by the matching plain-lyrics provider");
+        check(restoredPlain.Select((line, i) =>
+                line.Words is { Count: > 0 } &&
+                string.Concat(line.Words.Select(w => w.Text)) == line.Text &&
+                line.Words.Zip(soldier[i].Words!, (a, b) =>
+                    a.AtMs == b.AtMs && a.EndMs == b.EndMs).All(v => v))
+            .All(v => v),
+            "Restored plain text never changes original word timing or karaoke character offsets");
+        check(!LyricWordSpacing.NeedsRepair(restoredPlain),
+            "Repaired cache is recognized as corrected, so repeated plays stay instant");
+
+        var (incorrect, incorrectFixed) = LyricWordSpacing.RestoreFromPlain(
+            soldier, "She was waitin' for the\\nbus in his army greens".Replace("\\n", "\n"));
+        check(incorrectFixed == 1 &&
+              incorrect[0].Text == soldier[0].Text,
+            "Never copy spacing from a different lyric line, even if it looks similar");
+
+        var (ambiguous, ambiguousFixed) = LyricWordSpacing.RestoreFromPlain(
+            [soldier[0]], "He was waitin' for the\\nHe waswaitin' for the"
+                .Replace("\\n", "\n"));
+        check(ambiguousFixed == 0 &&
+              ambiguous[0].Text == soldier[0].Text,
+            "Conflicting whitespace patterns in repeated plain lines are rejected");
+
+        check(!LyricWordSpacing.NeedsRepair(
+                [new LrcLine(20000, "sunrise",
+                    Timed(20000, "sun", "rise"))]),
+            "Single words split into legitimate timed syllables are not treated as spacing failures");
     }
 
     private static IReadOnlyList<LrcWord> Timed(long start,

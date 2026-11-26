@@ -97,16 +97,31 @@ internal static class NetEaseWordProvider
                 if (yrc.Length == 0)
                     yrc = ExtractLyric(doc.RootElement, "klyric");
                 var parsed = NeteaseYrcParser.Parse(yrc);
+                string lrc = ExtractLyric(doc.RootElement, "lrc");
                 if (WordTimedLyrics.HasWordTimings(parsed) &&
                     BetterLyricsWordProvider.PlausibleDuration(parsed, durationMs))
+                {
+                    // NetEase returns a normally spaced LRC *alongside*
+                    // the YRC syllables in the very same HTTP response.
+                    // Previously we threw this text away, even when YRC
+                    // joined whole English words without spaces. Restore
+                    // ONLY exact-matching line separators; retain every
+                    // NetEase word onset/end timestamp unchanged.
+                    if (!string.IsNullOrWhiteSpace(lrc))
+                    {
+                        var reference = LrcParser.Parse(lrc);
+                        if (reference.Count > 0)
+                            parsed = LyricWordSpacing.Restore(
+                                parsed, reference).Lines;
+                    }
                     return parsed;
+                }
 
                 // Android Melisma accepts the provider's genuine plain LRC
                 // when YRC word timing is missing. The Windows port had been
                 // throwing those real line timestamps away and leaving users
                 // with untimed text instead. Keep the first plausible line-
                 // timed answer immediately; other concurrent providers can upgrade it.
-                string lrc = ExtractLyric(doc.RootElement, "lrc");
                 if (!string.IsNullOrWhiteSpace(lrc))
                 {
                     var lineTimed = LrcParser.Parse(lrc);
