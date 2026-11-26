@@ -1,3 +1,29 @@
+# Melisma Universal Windows v0.6.22 — restore smooth transitions after restart-safety fix
+
+## User report
+The user confirmed that v0.6.21 fixed the serious bug where *Travelin' Soldier* lyrics followed a different song after Foobar2000 closed/reopened. However, **the pleasing fade-in and cover-to-cover transitions disappeared** and changing tracks became abrupt.
+
+## Fix: keep playback identity strict, presentation transitions gentle
+
+- **Preserve outgoing cover on quick stop/reopen:** v0.6.21 invalidates playback on Foobar stop by calling `AlbumArtworkState.Replace(null)`. That moves the old cover into `Previous` and sets `Current=null`. When the next song's image arrives, the old `Replace()` disposed `Previous` and put the new cover over blank rather than fading old → new.
+- The cover transition now **transfers the outgoing image** into the next transition if either the user-selected **background fade** or **Cinema cover fade** remains active. The incoming cover fades over the old cover at the configured rate. If both fade windows have expired, the old cover is discarded, so an unrelated new song cannot indefinitely inherit old artwork.
+- When no cover is available for the next track, the old image fades out to the placeholder. Repeated null-art responses do not reset the fade timer.
+- **New lyrics always fade in:** a unique per-playback visual epoch is advanced whenever the native track identity is invalidated. The 750ms lyric reveal now includes that epoch in its document key, so even *the same song replayed from disk cache* has a fresh readable fade when its next playback starts.
+- **Safety retained:** closing/stopping Foobar still cancels the prior lyric lookup, clears old text, and rejects stale Foobar/Windows metadata. The old lyrics are NEVER animated under the next song. Foobar Bridge v0.4 remains required for robust restart handling; **no bridge update for this particular release**.
+- No change to the five v0.6.19 animation styles, v0.6.20 word spacing, Android three-dot landing, lyric timestamp offsets, or the metadata/caching strategy.
+
+### Test sequence
+
+1. Extract Melisma Windows v0.6.22 separately; keep Foobar Bridge v0.4 installed.
+2. Play *Travelin' Soldier*, then switch directly to another song with a different album cover. New art should slowly reveal **over** the outgoing artwork, using the times set in **Cover…**. The new song's lyrics should softly fade in even when they load immediately from cache.
+3. Repeat the exact previous regression: close Foobar2000 mid-song, immediately open a different MP3, and watch the cover-to-cover transition. The previous lyrics must clear right away and the next song's correct lyrics must appear with a fresh fade.
+4. Let Foobar remain closed longer than both configured artwork transition durations, then reopen a different track: the old cover must *not* return. Check a song with no embedded art too.
+5. Replay the same song twice, pause/resume, and use the second screen to confirm consistent transitions without shifting synchronized word highlighting.
+
+Automated checks cover preservation of outgoing artwork only within configured fade windows and playback-epoch-triggered lyric reveal. The real Windows animations still need your visual confirmation.
+
+---
+
 # Melisma Universal Windows v0.6.21 — Foobar restart session safety
 
 **Reproduction:** The user played *Travelin' Soldier*, closed Foobar2000, opened another track, and Melisma resumed scrolling *Travelin' Soldier* lyrics to the new audio.

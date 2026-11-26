@@ -10,4 +10,13 @@ internal static class CoverFade
 
     internal static float NewOpacity(float progress) =>
         Math.Clamp(progress, 0f, 1f);
+
+    // If playback stopped briefly, _current is null but _previous still
+    // contains the outgoing album cover. Reuse that image when the new
+    // track arrives before the user's configured artwork/background fades
+    // have finished, instead of fading the new cover in from a blank panel.
+    internal static bool ReuseOutgoingAfterStop(
+        float backgroundProgress, float coverProgress) =>
+        backgroundProgress < 1f || coverProgress < 1f;
+
 }

@@ -15,6 +15,16 @@ internal static class LyricPreviewMotion
         return t * t * (3f - 2f * t);
     }
 
+    // Playback epoch distinguishes two separate plays of the SAME song
+    // even when the document is served instantly from the same disk cache.
+    // Without this, lyrics could appear fully opaque on song restart or a
+    // rapid Foobar close/open with no blank paint frame in between.
+    internal static string DocumentKey(ulong trackEpoch, string title,
+        string artist, int lineCount, long firstLineMs, long lastLineMs) =>
+        trackEpoch.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+        "\\u001f" + title + "\\u001f" + artist + "\\u001f" +
+        lineCount + "\\u001f" + firstLineMs + "\\u001f" + lastLineMs;
+
     // Fade newly available lyrics into view even if the first vocal is
     // dozens of seconds later. Uses display time, not playback time.
     internal static float Reveal(long millisecondsSinceAvailable) =>

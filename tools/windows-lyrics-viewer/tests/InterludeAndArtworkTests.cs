@@ -65,5 +65,31 @@ internal static class InterludeAndArtworkTests
         check(CoverFade.OldOpacity(1f, false) == 0f &&
             CoverFade.NewOpacity(1f) == 1f,
             "Missing new artwork fades to placeholder; loaded cover ends opaque");
+        check(CoverFade.ReuseOutgoingAfterStop(0.4f, 0.7f) &&
+              CoverFade.ReuseOutgoingAfterStop(1f, 0.7f) &&
+              CoverFade.ReuseOutgoingAfterStop(0.4f, 1f),
+            "Rapid Foobar restart keeps the outgoing cover while either configured fade is in progress");
+        check(!CoverFade.ReuseOutgoingAfterStop(1f, 1f),
+            "Expired outgoing artwork cannot be resurrected onto an unrelated song");
+        check(CoverFade.OldOpacity(0f, true) == 1f &&
+              CoverFade.NewOpacity(0f) == 0f &&
+              CoverFade.NewOpacity(0.6f) > 0f &&
+              CoverFade.NewOpacity(0.6f) < 1f,
+            "New embedded cover reveals over intact outgoing cover, not instantly over blank");
+
+        string first = LyricPreviewMotion.DocumentKey(
+            10, "Travelin' Soldier", "Dixie Chicks", 55, 1000, 180000);
+        string again = LyricPreviewMotion.DocumentKey(
+            11, "Travelin' Soldier", "Dixie Chicks", 55, 1000, 180000);
+        check(first != again,
+            "Replaying identical cached lyrics restarts the independent reveal animation");
+        check(first == LyricPreviewMotion.DocumentKey(
+            10, "Travelin' Soldier", "Dixie Chicks", 55, 1000, 180000),
+            "Repeated paint of one document preserves fade progress");
+        check(LyricPreviewMotion.Reveal(0) == 0f &&
+              LyricPreviewMotion.Reveal(375) > 0f &&
+              LyricPreviewMotion.Reveal(375) < 1f &&
+              LyricPreviewMotion.Reveal(750) == 1f,
+            "New track fades in over 750ms without postponing word timestamps");
     }
 }
