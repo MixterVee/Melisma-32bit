@@ -1,3 +1,36 @@
+# Melisma Universal Windows v0.6.23 — actual on-screen crossfades
+
+## User feedback
+Windows v0.6.22 **still switches songs visually too abruptly**, despite the earlier fix preserving the outgoing cover in memory. Treat this as a regression: passing opacity math tests without testing the **actual rendered screen** was insufficient.
+
+## Two additional defects confirmed in source
+
+1. **The default Auto → Living background bypassed the fade.** The painting code fed the fluid renderer `_artwork.Current` immediately. The renderer detected a changed image and instantly replaced its entire palette; user-selected background FadeSeconds was not used. v0.6.23 now gives the renderer outgoing and incoming cover references plus its actual user-selected progress. It interpolates all four palette colours over that progress, including full-screen idle Living, while continuing to render at the existing **10 fps cap**, with no extra animation timer or CPU-heavy redraw.
+2. **Native artwork sometimes processed twice on the same song.** During a new Foobar generation, the native cover callback can arrive before the async title/artist metadata. The earlier logic accepts the new bitmap, then resets `_nativeCoverSequence=-1` when metadata arrives, accepts the same bitmap again and moves it into both Previous and Current. The user then sees an immediate jump or a same-image fade. v0.6.23 keeps the already accepted generation and native sequence when metadata confirms the same song. It also fingerprints artwork bytes so repeated Foobar or catalog callbacks containing identical art cannot reset the cover transition.
+
+### Preserved behavior
+
+- Foobar Bridge **v0.4** restart safety: invalidates old song lyrics immediately when playback stops/disconnects and rejects the old song's metadata on new audio.
+- Cover-panel and background fade durations remain separately configurable in **Cover…**, 1–10 seconds; new art can arrive before or after the metadata, but accepted artwork is not repeatedly installed.
+- Cached lyrics still get a distinct 750ms fade-in for each track (as added in v0.6.22).
+- All v0.6.19 animation styles, v0.6.20 English spacing, three-dot timing, lyric source timestamps, native track artwork priority and CPU budget remain unchanged.
+
+## Manual test — verify both actual visual surfaces
+
+1. Extract Windows v0.6.23 into a new folder; **keep Bridge v0.4** installed. In **Cover…** choose a clearly observable longer transition (e.g. **6 seconds**) for **both background and cover**. This is a test setting, not a new default.
+2. In **Display…**, use **Cinema** with background **Living** (also test Auto, which resolves to Living). Play *Travelin' Soldier* and immediately switch to a song with a contrasting cover. Watch both the album square and the surrounding moving colours. The background must *blend*, not instantly take on the new colours, and the album cover must reveal old → new.
+3. Try **Lyrics-only** mode and another background style. Then repeat close Foobar mid-song and reopen another MP3 quickly; previous lyrics must clear for safety while the new cover/background transition remains smooth.
+4. Watch a track with no cover and repeated same-album tracks. Cover data should neither stick forever nor reset the fade on duplicate native callbacks. Replaying the same track should preserve accurate sync and show a fresh lyric fade.
+5. If the UI still jumps, provide a short video showing **the whole display during a direct track change** and **Sources…**. The current code now has independent tests for the actual drawn Living palette, not merely the fade formula.
+
+### New automated visual regression
+
+The Windows test harness draws two distinct solid-colour album covers through the **production FluidLivingRenderer**, samples the actual output pixels at 0%, 50%, and 100% transition, and checks for gradual intermediate colours. Additional tests verify same-generation metadata cannot reset an accepted native cover and identical artwork bytes yield an equal fingerprint.
+
+**No Foobar component upgrade for this build.**
+
+---
+
 # Melisma Universal Windows v0.6.22 — restore smooth transitions after restart-safety fix
 
 ## User report

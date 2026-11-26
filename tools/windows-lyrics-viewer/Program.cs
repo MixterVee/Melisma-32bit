@@ -100,7 +100,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.22";
+        Text = "Melisma Universal · Windows v0.6.23";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -600,8 +600,16 @@ internal sealed class LyricsController : Form
             _artworkFallbackStarted = false;
             _manualArtworkForTrack = false;
             _nativeCoverRequestedAt = Environment.TickCount64;
-            _nativeCoverSequence = -1;
-            _nativeCoverGeneration = _lastFoobarTrackGeneration;
+            // With Bridge v0.4, front-cover bytes can arrive during the
+            // ReadBridge tick BEFORE PollMediaAsync resolves the song title.
+            // Never reset an already accepted sample for the SAME generation:
+            // processing it a second time makes old/new artwork both "new".
+            if (NativeArtworkTransitionGuard.NeedsReset(
+                _nativeCoverGeneration, _lastFoobarTrackGeneration))
+            {
+                _nativeCoverSequence = -1;
+                _nativeCoverGeneration = _lastFoobarTrackGeneration;
+            }
 
             // Bridge v0.3 publishes the actual front cover for the Foobar
             // track. Never prefer a GSMTC thumbnail when this interface is
@@ -1536,6 +1544,7 @@ internal sealed class AlbumArtworkState : IDisposable
 
     private Bitmap? _previous;
     private Bitmap? _current;
+    private ulong? _currentContentHash;
     private long _transitionTick = Environment.TickCount64;
     public bool Enabled { get; set; } = true;
     public float FadeSeconds { get; set; } = 4f;
@@ -1595,6 +1604,16 @@ internal sealed class AlbumArtworkState : IDisposable
 
     public void Replace(byte[]? imageBytes)
     {
+        ulong? nextHash = imageBytes is { Length: > 0 }
+            ? NativeArtworkTransitionGuard.Fingerprint(imageBytes) : null;
+        if (nextHash.HasValue && _current != null &&
+            nextHash == _currentContentHash)
+        {
+            // Identical callback/catalog art must not restart the fade or
+            // discard the original outgoing cover. This also prevents an
+            // unnecessary same-album transition between neighboring tracks.
+            return;
+        }
         Bitmap? next = null;
         if (imageBytes is { Length: > 0 })
         {
@@ -1622,6 +1641,7 @@ internal sealed class AlbumArtworkState : IDisposable
         _previous?.Dispose();
         _previous = outgoing;
         _current = next;
+        _currentContentHash = nextHash;
         _transitionTick = Environment.TickCount64;
     }
 
@@ -1631,6 +1651,7 @@ internal sealed class AlbumArtworkState : IDisposable
         _current?.Dispose();
         _previous = null;
         _current = null;
+        _currentContentHash = null;
     }
 }
 
@@ -2148,8 +2169,12 @@ internal sealed class LyricsCanvas : Control
     private void DrawIdleTakeover(Graphics g)
     {
         if (_idleBackground.LivingMix <= 0.001f) return;
-        var art = _artwork.Enabled ? _artwork.VisibleBackground : null;
-        _fluidLiving.Draw(g, ClientRectangle, art, _idleBackground.LivingMix);
+        // Idle takeover uses the same smoothly blended palette as regular
+        // Living background; stopping playback must not snap its colours.
+        _fluidLiving.DrawTransition(g, ClientRectangle,
+            _artwork.Enabled ? _artwork.Previous : null,
+            _artwork.Enabled ? _artwork.Current : null,
+            _artwork.Progress, _idleBackground.LivingMix);
     }
 
     private RectangleF LyricsArea
@@ -2221,8 +2246,12 @@ internal sealed class LyricsCanvas : Control
 
         if (style == MelismaBackgroundStyle.Living)
         {
-            var livingArt = _artwork.Enabled ? _artwork.VisibleBackground : null;
-            _fluidLiving.Draw(g, ClientRectangle, livingArt, layerOpacity);
+            // The previous version selected Current immediately, bypassing
+            // the 1–10s artwork fade entirely in the default Living mode.
+            _fluidLiving.DrawTransition(g, ClientRectangle,
+                _artwork.Enabled ? _artwork.Previous : null,
+                _artwork.Enabled ? _artwork.Current : null,
+                _artwork.Progress, layerOpacity);
             // Darken the regular Living BACKGROUND for readable lyrics.
             // The idle screensaver is intentionally shown without this scrim.
             using var veil = new SolidBrush(Color.FromArgb(
