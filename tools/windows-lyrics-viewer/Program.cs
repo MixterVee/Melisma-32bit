@@ -2505,10 +2505,8 @@ internal sealed class LyricsCanvas : Control
             // different scale, around one IMMUTABLE physical pivot.
             // Both X and Y scale symmetrically. No new font or word-width
             // calculation is performed when the scale changes.
-            using var transform = new Matrix();
-            transform.Translate(-pivot.X, -pivot.Y, MatrixOrder.Append);
-            transform.Scale(wordScale, wordScale, MatrixOrder.Append);
-            transform.Translate(pivot.X, pivot.Y, MatrixOrder.Append);
+            using var transform = ActiveWordGeometry.CenteredTransform(
+                pivot, wordScale);
             g.MultiplyTransform(transform, MatrixOrder.Append);
 
             // Clip after applying the matrix so the clip expands WITH the
