@@ -31,8 +31,65 @@ internal static class LyricWordSpacing
         return builder.ToString();
     }
 
+    // Detect a plausible missing-space document without changing the
+    // lyrics. This only triggers a reference lookup; no word boundaries are
+    // guessed from spelling, syllable duration, or English dictionaries.
+    internal static bool NeedsRepair(IReadOnlyList<LrcLine> lines) =>
+        lines.Any(line => line.Words is { Count: >= 3 } words &&
+            line.Text.Length >= 10 && line.Text.Any(c => c is
+                >= 'A' and <= 'Z' or >= 'a' and <= 'z') &&
+            // Some syllables naturally divide an English word; this is a
+            // suspicion only, never permission to insert guessed spaces.
+            words.Count(w => w.Text.Count(char.IsLetter) >= 2) >= 3 &&
+            words.Count(w => w.Text.Any(char.IsWhiteSpace)) <=
+                Math.Max(0, words.Count / 5));
+
     internal static (List<LrcLine> Lines, int FixedLines) Restore(
-        IReadOnlyList<LrcLine> source, IReadOnlyList<LrcLine> reference)
+        IReadOnlyList<LrcLine> source, IReadOnlyList<LrcLine> reference) =>
+        RestoreCore(source, reference, timedReference: true);
+
+    // Plain lyrics can provide authoritative SPACING even though they have
+    // no timestamps. Require the entire non-whitespace lyric line to match
+    // exactly, with a single unambiguous set of whitespace boundaries.
+    // Never copy the plain source's words or manufacture word timestamps.
+    internal static (List<LrcLine> Lines, int FixedLines) RestoreFromPlain(
+        IReadOnlyList<LrcLine> source, string? plainLyrics)
+    {
+        if (string.IsNullOrWhiteSpace(plainLyrics))
+            return (source.ToList(), 0);
+        var references = plainLyrics.Replace("\r", "")
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .Select(x => x.Trim())
+            .Where(x => x.Length is >= 4 and <= 400)
+            .Select(x => new LrcLine(0, x)).ToList();
+        return RestoreCore(source, references, timedReference: false);
+    }
+
+    private static string SpaceBoundaries(string text)
+    {
+        var boundaries = new StringBuilder();
+        int lettersSeen = 0;
+        bool inWhitespace = false;
+        foreach (char ch in text)
+        {
+            if (char.IsWhiteSpace(ch))
+            {
+                if (lettersSeen > 0 && !inWhitespace)
+                    boundaries.Append(lettersSeen).Append(',');
+                inWhitespace = true;
+            }
+            else
+            {
+                lettersSeen++;
+                inWhitespace = false;
+            }
+        }
+        return boundaries.ToString();
+    }
+
+    private static (List<LrcLine> Lines, int FixedLines) RestoreCore(
+        IReadOnlyList<LrcLine> source, IReadOnlyList<LrcLine> reference,
+        bool timedReference)
     {
         var repaired = new List<LrcLine>(source.Count);
         int fixedLines = 0;
@@ -52,14 +109,25 @@ internal static class LyricWordSpacing
                 continue;
             }
 
-            var best = reference
+            var candidates = reference
                 .Where(candidate =>
                     !string.IsNullOrWhiteSpace(candidate.Text) &&
-                    Math.Abs(candidate.AtMs - line.AtMs) <= MaxAlignmentDistanceMs &&
+                    (!timedReference ||
+                        Math.Abs(candidate.AtMs - line.AtMs) <= MaxAlignmentDistanceMs) &&
                     Letters(candidate.Text) == key)
                 .OrderBy(candidate => Math.Abs(candidate.AtMs - line.AtMs))
-                .FirstOrDefault();
-
+                .ToList();
+            // On untimed plain documents, the same unspaced lyric may
+            // occur multiple times. If the references disagree on where
+            // spaces belong, do not choose a potentially wrong verse.
+            if (!timedReference &&
+                candidates.Select(x => SpaceBoundaries(x.Text))
+                    .Distinct(StringComparer.Ordinal).Skip(1).Any())
+            {
+                repaired.Add(line);
+                continue;
+            }
+            var best = candidates.FirstOrDefault();
             if (best == null || !TryRealign(line.Words, best.Text,
                     out var updatedWords, out string updatedText) ||
                 updatedText == line.Text)
