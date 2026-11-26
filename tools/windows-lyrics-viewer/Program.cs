@@ -97,7 +97,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.14";
+        Text = "Melisma Universal · Windows v0.6.15";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -1797,6 +1797,14 @@ internal sealed class LyricsCanvas : Control
         float dotFontPx = fontPoints * g.DpiY / 72f;
         float gapPx = dotFontPx * AndroidInterludeRow.DotGapMultiplier;
         float left = LyricsArea.Left + SidePadding;
+        if (_display.Layout == MelismaViewMode.Lyrics &&
+            _planned[upcoming].Rows.Count > 0)
+        {
+            float width = Math.Max(1f, LyricsArea.Width - 2f * SidePadding);
+            float rowWidth = TextWidth(g, _planned[upcoming].Rows[0].Text,
+                _planned[upcoming].Font);
+            left = LyricRowAlignment.RowLeft(left, width, rowWidth, true);
+        }
         using var format = new StringFormat(StringFormat.GenericTypographic)
         {
             Alignment = StringAlignment.Near,
@@ -2439,13 +2447,18 @@ internal sealed class LyricsCanvas : Control
         float fullWidth = TextWidth(g, visualRow.Text, baseFont);
         float beforeWidth = TextWidth(g, visualRow.Text[..begin], baseFont);
         float throughWidth = TextWidth(g, visualRow.Text[..finish], baseFont);
-        float wordCenterX = rect.Left +
-            (beforeWidth + throughWidth) * 0.5f;
+        // The scaled word must use the EXACT same row origin as DrawLayout.
+        // Lyrics mode centres each complete wrapped row; Cinema retains a
+        // left-aligned column. Its centre stays fixed as the font grows.
+        float rowLeft = LyricRowAlignment.RowLeft(rect.Left, rect.Width,
+            fullWidth, _display.Layout == MelismaViewMode.Lyrics);
+        float wordCenterX = LyricRowAlignment.WordCenter(rowLeft,
+            beforeWidth, throughWidth);
         float grownWidth = TextWidth(g, wordText, grownFont);
         float lifted = active.Pulse.LiftEm * baseFont.GetHeight(g);
         var grownRect = new RectangleF(
-            wordCenterX - grownWidth * 0.5f, rect.Top - lifted,
-            grownWidth + 5f, rect.Height + 2f);
+            LyricRowAlignment.GrownWordLeft(wordCenterX, grownWidth),
+            rect.Top - lifted, grownWidth + 5f, rect.Height + 2f);
 
         using var typographic = new StringFormat(
             StringFormat.GenericTypographic)
@@ -2494,6 +2507,7 @@ internal sealed class LyricsCanvas : Control
         // emphasis and scrolling animate; the text block NEVER re-centres
         // because its font size changed.
         Font displayFont = layout.Font;
+        bool centered = _display.Layout == MelismaViewMode.Lyrics;
         opacity = Math.Clamp(opacity, 0f, 1f);
         using var normalBrush = new SolidBrush(Color.FromArgb(
             (int)Math.Round(color.A * opacity), color));
@@ -2501,7 +2515,7 @@ internal sealed class LyricsCanvas : Control
             (int)Math.Round(Highlight.A * opacity), Highlight));
         using var format = new StringFormat(StringFormat.GenericTypographic)
         {
-            Alignment = StringAlignment.Near,
+            Alignment = centered ? StringAlignment.Center : StringAlignment.Near,
             LineAlignment = StringAlignment.Center,
             FormatFlags = StringFormatFlags.NoWrap
         };
@@ -2526,7 +2540,9 @@ internal sealed class LyricsCanvas : Control
                 if (startChar >= 0 && endChar <= row.Text.Length &&
                     endChar > startChar)
                 {
-                    float rowLeft = rect.Left;
+                    float rowWidth = TextWidth(g, row.Text, displayFont);
+                    float rowLeft = LyricRowAlignment.RowLeft(rect.Left,
+                        rect.Width, rowWidth, centered);
                     float xStart = TextWidth(g, row.Text[..startChar], displayFont);
                     float xEnd = TextWidth(g, row.Text[..endChar], displayFont);
                     originalWordMask = g.Save();
@@ -2571,7 +2587,8 @@ internal sealed class LyricsCanvas : Control
                     displayFont);
                 playedWidth += Math.Max(0f, next - playedWidth) * fraction;
             }
-            float left = rect.Left;
+            float left = LyricRowAlignment.RowLeft(rect.Left,
+                rect.Width, totalWidth, centered);
             var saved = g.Save();
             g.SetClip(new RectangleF(left - 1f, rect.Top,
                 playedWidth + 2f, rect.Height), CombineMode.Intersect);
