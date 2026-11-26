@@ -97,7 +97,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.17";
+        Text = "Melisma Universal · Windows v0.6.18";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -1599,6 +1599,16 @@ internal sealed class LyricsCanvas : Control
         }
         float reveal = LyricPreviewMotion.Reveal(paintTick - _revealTick);
         int active = frame.ActiveIndex;
+        // The scroll away from the dots starts only at the NEXT sung line's
+        // real timestamp. Until then, the third dot must be allowed to land
+        // visibly without the whole row moving up the screen.
+        var completedGap = !inGap && active >= 0 &&
+            active < frame.Lines.Count
+                ? LyricsInterlude.Before(frame.Lines, active) : null;
+        bool exitGap = completedGap.HasValue &&
+            frame.LyricPositionMs >= completedGap.Value.EndMs &&
+            frame.LyricPositionMs <
+                completedGap.Value.EndMs + AndroidInterludeRow.ExitScrollDurationMs;
         if (active != _lastActive)
         {
             // If we spent the instrumental gap reading the incoming line,
@@ -1635,6 +1645,16 @@ internal sealed class LyricsCanvas : Control
                 frame.LyricPositionMs, _interludeCenters[upcoming],
                 _lineCenters[upcoming],
                 active >= 0 ? _lineCenters[active] : null);
+        }
+        else if (exitGap &&
+            center < _interludeCenters.Length &&
+            !float.IsNaN(_interludeCenters[center]))
+        {
+            // Keep this after-gap glide purely presentational; word/cyan
+            // timing already follows frame.LyricPositionMs independently.
+            anchor = AndroidInterludeRow.ExitFocus(completedGap!.Value,
+                frame.LyricPositionMs, _interludeCenters[center],
+                _lineCenters[center]);
         }
         else if (animate)
         {
