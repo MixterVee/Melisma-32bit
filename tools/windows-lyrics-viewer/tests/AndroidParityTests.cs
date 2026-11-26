@@ -47,6 +47,30 @@ internal static class AndroidParityTests
         check(AndroidInterludeRow.DotOpacity(0f, false) == 0.35f &&
             AndroidInterludeRow.DotOpacity(1f, false) == 1f,
             "Dot opacity follows the Android non-simple animation");
+        // Video regression: in v0.6.16 the last dot was still raised as
+        // Windows hid all three 500ms before the next vocal line. The
+        // third dot must settle FIRST and disappear only at lyric entry.
+        check(AndroidInterludeRow.FinalDotLandingFactor(gap,
+                  gap.EndMs - 650) == 1f &&
+              AndroidInterludeRow.FinalDotLandingFactor(gap,
+                  gap.EndMs - 400) is > 0f and < 1f &&
+              AndroidInterludeRow.FinalDotLandingFactor(gap,
+                  gap.EndMs - 120) == 0f,
+            "Final dot moves smoothly downward and reaches baseline before singing");
+        check(AndroidInterludeRow.FinalDotLandingFactor(gap,
+                  gap.EndMs - 80) == 0f &&
+              AndroidInterludeRow.FinalDotsOpacity(gap,
+                  gap.EndMs - 120) == 1f,
+            "Third dot remains visibly landed before fade-out begins");
+        check(AndroidInterludeRow.FinalDotsOpacity(gap,
+                  gap.EndMs - 55) is > 0f and < 1f &&
+              AndroidInterludeRow.FinalDotsOpacity(gap,
+                  gap.EndMs) == 0f,
+            "Dots only fade out in the final 110ms immediately before vocals");
+        check(LyricsInterlude.Around(lyric, 15750) != null &&
+              LyricsInterlude.At(lyric, 15750) == null,
+            "Final 500ms stay inside the interlude's landing window even after pre-hide");
+
         check(Math.Abs(AndroidWordScale.Target(0f) - 0.95f) < 0.001f &&
             Math.Abs(AndroidWordScale.Target(0.7f) - 1.0505f) < 0.001f &&
             Math.Abs(AndroidWordScale.Target(1f) - 1f) < 0.001f,
