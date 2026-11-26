@@ -1758,7 +1758,9 @@ internal sealed class LyricsCanvas : Control
         using var format = new StringFormat
         {
             Trimming = StringTrimming.EllipsisCharacter,
-            FormatFlags = StringFormatFlags.NoWrap
+            FormatFlags = StringFormatFlags.NoWrap,
+            Alignment = _display.Layout == MelismaViewMode.Lyrics
+                ? StringAlignment.Center : StringAlignment.Near
         };
         for (int i = _plainScrollLines;
             i < Math.Min(rows.Length, _plainScrollLines + showing); i++)
