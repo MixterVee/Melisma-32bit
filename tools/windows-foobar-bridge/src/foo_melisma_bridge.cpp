@@ -222,7 +222,8 @@ void tryStartPublisher() noexcept {
     const std::uint64_t processEpoch =
         (static_cast<std::uint64_t>(now) << 16) ^
          static_cast<std::uint64_t>(GetCurrentProcessId());
-    g_generation = std::max(pastGeneration + 1, processEpoch);
+    g_generation = pastGeneration + 1 > processEpoch
+        ? pastGeneration + 1 : processEpoch;
     ZeroMemory(g_shared, sizeof(*g_shared));
     g_shared->magic = kMagic;
     g_shared->version = kVersion;
