@@ -1,3 +1,29 @@
+# Melisma Universal Windows v0.6.18 — hold position until third dot finishes
+
+The user confirmed that v0.6.17's third dot **now drops**, but the lyric viewport scrolls upward **before that downward movement finishes**.
+
+## Root cause
+
+In `AndroidInterludeRow.Focus`, v0.6.17 began moving the viewport from the dotted interlude row toward the next vocal line **780 ms before the next line's source timestamp**. Meanwhile, the third dot did not reach its baseline until about **120 ms before that timestamp**. This made the dot appear to shift upward with the whole screen while still descending, despite its own motion being correct.
+
+## Correction
+
+- **Hold the interlude row at a fixed screen position** for the entire third-dot landing and its brief grounded hold. The dots still follow the exact song position, with no synthetic lyric timing.
+- **Begin the upward lyric scroll at vocal onset, not 780 ms beforehand.** Use a 420-ms eased transition from the interlude row to the incoming line *after* the line starts. The cyan lyric highlighting remains tied to the original timestamp; only the camera/viewport position moves.
+- **No snap at the timestamp:** An explicit post-interlude glide covers the first 420 ms of the new lyric, then joins the normal line position continuously, including after seeks/pauses.
+- Retain v0.6.17's third-dot descent and last-110-ms fade, v0.6.16 stationary word enlargement, native Foobar album art, Android interlude row styling, and adaptive CPU usage.
+
+### Real playback acceptance
+
+1. On *…Ready For It?*, observe the gap before **“Knew I was a robber first…”**. Watch the **entire dot row**, not only the third dot. It must stay stationary while dot three comes down and settles.
+2. The dots fade after landing; *only then* should the lyric column begin its smooth upward movement, at the actual lyric onset.
+3. Verify cyan highlighting still follows the singer exactly; it must not be delayed by the 420-ms scrolling presentation.
+4. Pause and seek around the last second of an intro/interlude and confirm the dot landing and scroll follow Foobar's playhead correctly.
+
+Automated timing tests cover holding, early onset boundaries, smooth exit and no final snapping; final visual verification remains a live Windows comparison.
+
+---
+
 # Melisma Windows v0.6.17 — third-dot landing fix
 
 The uploaded video `2026-11-25_20h26_02.mp4` shows the third interlude dot still raised just before the lyrics resume in v0.6.16, though the individual-word enlargement looks improved.

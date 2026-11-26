@@ -90,9 +90,33 @@ internal static class AndroidParityTests
             "Android analytic spring enlarges smoothly even with 40fps frames");
 
         check(AndroidInterludeRow.Focus(gap, 2000, 130f, 235f, 40f) >= 129.5f &&
-            AndroidInterludeRow.Focus(gap, 12500, 130f, 235f, 40f) > 130f &&
-            Math.Abs(AndroidInterludeRow.Focus(gap, gap.EndMs, 130f, 235f, 40f)
-                - 235f) < 0.01f,
-            "Scrolling focuses the dot row, then glides to the next vocal");
+            Math.Abs(AndroidInterludeRow.Focus(gap, 12500, 130f, 235f, 40f)
+                - 130f) < 0.01f &&
+            Math.Abs(AndroidInterludeRow.Focus(gap, gap.EndMs - 120, 130f,
+                235f, 40f) - 130f) < 0.01f,
+            "Third dot stays centered during its complete descent and visible hold");
+        check(Math.Abs(AndroidInterludeRow.Focus(gap, gap.EndMs - 1,
+                130f, 235f, 40f) - 130f) < 0.01f,
+            "Viewport does not scroll while the final dot is still visible");
+        check(AndroidInterludeRow.ExitFocus(gap, gap.EndMs - 120,
+                130f, 235f) == 130f &&
+            AndroidInterludeRow.ExitFocus(gap, gap.EndMs,
+                130f, 235f) == 130f,
+            "Scrolling starts no earlier than the true next lyric timestamp");
+        check(AndroidInterludeRow.ExitFocus(gap, gap.EndMs + 160,
+                130f, 235f) > 130f &&
+            AndroidInterludeRow.ExitFocus(gap, gap.EndMs + 160,
+                130f, 235f) < 235f &&
+            Math.Abs(AndroidInterludeRow.ExitFocus(gap,
+                gap.EndMs + AndroidInterludeRow.ExitScrollDurationMs,
+                130f, 235f) - 235f) < 0.01f,
+            "Viewport glides to sung line after dot landing without any snap");
+        check(Math.Abs(AndroidInterludeRow.ExitFocus(gap,
+                gap.EndMs + AndroidInterludeRow.ExitScrollDurationMs - 1,
+                130f, 235f) -
+                AndroidInterludeRow.ExitFocus(gap,
+                gap.EndMs + AndroidInterludeRow.ExitScrollDurationMs,
+                130f, 235f)) < 0.01f,
+            "After-gap viewport joins normal song scrolling continuously");
     }
 }
