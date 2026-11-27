@@ -34,6 +34,8 @@
     <Compile Include="../CoverFade.cs" Link="CoverFade.cs" />
     <Compile Include="../NativeArtworkReader.cs" Link="NativeArtworkReader.cs" />
     <Compile Include="../NativeArtworkTransitionGuard.cs" Link="NativeArtworkTransitionGuard.cs" />
+    <Compile Include="../CastTabServer.cs" Link="CastTabServer.cs" />
+    <Compile Include="CastTabTests.cs" />
     <Compile Include="../FluidLivingRenderer.cs" Link="FluidLivingRenderer.cs" />
     <Compile Include="VisualFadeTests.cs" />
     <Compile Include="InterludeAndArtworkTests.cs" />
