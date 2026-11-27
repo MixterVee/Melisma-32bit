@@ -58,6 +58,8 @@ internal sealed class LyricsController : Form
     private KaraokeDisplay? _projection;
     private CastTabServer? _castServer;
     private LyricsCanvas? _castCanvas;
+    private int _castLeadMs = CastTimingSettings.Read();
+    private ToolStripMenuItem? _castTimingMenu;
     private readonly System.Windows.Forms.Timer _castCaptureTimer = new()
         { Interval = 100 }; // max 10 fps; only runs when Cast tab enabled
     private readonly ContextMenuStrip _castMenu = new();
@@ -176,6 +178,15 @@ internal sealed class LyricsController : Form
         _castMenu.Items.Add("HDMI / extended TV display",
             null, (_, _) => ToggleSecondScreen(this, EventArgs.Empty));
         _castMenu.Items.Add(new ToolStripSeparator());
+        _castTimingMenu = new ToolStripMenuItem("Cast lyric timing (TV only)");
+        _castTimingMenu.DropDownItems.Add("Show words 250 ms earlier",
+            null, (_, _) => AdjustCastTiming(CastPlaybackTiming.StepMs));
+        _castTimingMenu.DropDownItems.Add("Show words 250 ms later",
+            null, (_, _) => AdjustCastTiming(-CastPlaybackTiming.StepMs));
+        _castTimingMenu.DropDownItems.Add("Reset cast timing",
+            null, (_, _) => AdjustCastTiming(-_castLeadMs));
+        _castMenu.Items.Add(_castTimingMenu);
+        UpdateCastTimingLabel();
         _castMenu.Items.Add("Copy cast-tab address",
             null, (_, _) => CopyCastAddress());
         _castMenu.Items.Add("Stop cast-tab sharing",
@@ -988,7 +999,9 @@ internal sealed class LyricsController : Form
             "IMPORTANT: This cast carries LYRICS ONLY, NOT Foobar AUDIO. " +
             "Choose the Windows audio output that feeds your speakers or " +
             "surround system separately. Chrome casting can introduce " +
-            "some visual delay; adjust Melisma's lyric timing if needed.\n\n" +
+            "some visual delay. If TV lyrics lag behind the music, use " +
+            "TV / Cast → Cast lyric timing → Show words earlier. This " +
+            "adjustment affects ONLY the TV, not PC lyrics or Foobar.\n\n" +
             "The browser page is served only on this PC at 127.0.0.1. " +
             "No MP3s, passwords, or files are shared with the TV, and " +
             "no router port forwarding is necessary.\n\n" +
@@ -998,13 +1011,46 @@ internal sealed class LyricsController : Form
             MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
+    private LyricFrame CurrentCastFrame()
+    {
+        var frame = CurrentFrame();
+        if (_castLeadMs == 0 || frame.Lines.Count == 0) return frame;
+        long shifted = CastPlaybackTiming.Apply(frame.LyricPositionMs, _castLeadMs);
+        return frame with
+        {
+            LyricPositionMs = shifted,
+            ActiveIndex = CastPlaybackTiming.ActiveLine(frame.Lines, shifted)
+        };
+    }
+
+    private void UpdateCastTimingLabel()
+    {
+        if (_castTimingMenu == null) return;
+        _castTimingMenu.Text = _castLeadMs == 0
+            ? "Cast lyric timing: 0 ms (TV only)"
+            : _castLeadMs > 0
+                ? $"Cast lyric timing: {_castLeadMs:+0;-0} ms (earlier on TV)"
+                : $"Cast lyric timing: {_castLeadMs:+0;-0} ms (later on TV)";
+    }
+
+    private void AdjustCastTiming(int deltaMs)
+    {
+        _castLeadMs = CastPlaybackTiming.ClampLead(_castLeadMs + deltaMs);
+        bool saved = CastTimingSettings.Save(_castLeadMs);
+        UpdateCastTimingLabel();
+        _notice = $"Cast lyrics: {_castLeadMs:+0;-0;0} ms shift" +
+            (saved ? "" : " (not saved)");
+        // The next shared 10fps Cast snapshot adopts the updated timing.
+        // Local lyrics and Foobar audio are unchanged.
+    }
+
     private void OpenCastTab()
     {
         try
         {
             if (_castServer == null)
             {
-                _castCanvas = new LyricsCanvas(CurrentFrame, _artwork,
+                _castCanvas = new LyricsCanvas(CurrentCastFrame, _artwork,
                     _display, _idleBackground)
                 {
                     Size = new Size(1280, 720)
