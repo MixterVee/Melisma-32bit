@@ -57,6 +57,7 @@ internal sealed class LyricsController : Form
     private GlobalSystemMediaTransportControlsSessionManager? _manager;
     private KaraokeDisplay? _projection;
     private CastTabServer? _castServer;
+    private DirectTvSender? _directTv;
     private LyricsCanvas? _castCanvas;
     private int _castLeadMs = CastTimingSettings.Read();
     private ToolStripMenuItem? _castTimingMenu;
@@ -110,7 +111,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.24";
+        Text = "Melisma Universal · Windows v0.6.25";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -173,7 +174,12 @@ internal sealed class LyricsController : Form
 
         _secondScreenButton.Click += ToggleSecondScreen;
         toolbar.Controls.Add(_secondScreenButton);
-        _castMenu.Items.Add("Cast lyrics only to TV (Chrome tab)",
+        _castMenu.Items.Add("Connect directly to Android TV (no browser)",
+            null, async (_, _) => await ConnectDirectTvAsync());
+        _castMenu.Items.Add("Stop direct TV casting",
+            null, (_, _) => StopDirectTv());
+        _castMenu.Items.Add(new ToolStripSeparator());
+        _castMenu.Items.Add("Cast lyrics via Chrome tab (fallback)",
             null, (_, _) => OpenCastTab());
         _castMenu.Items.Add("HDMI / extended TV display",
             null, (_, _) => ToggleSecondScreen(this, EventArgs.Empty));
@@ -281,6 +287,7 @@ internal sealed class LyricsController : Form
         FormClosing += (_, _) => ControllerWindowPlacement.Save(this);
         FormClosed += (_, _) =>
         {
+            StopDirectTv();
             StopCastTab();
             _castMenu.Dispose();
             _screenTimer.Stop();
@@ -1044,21 +1051,89 @@ internal sealed class LyricsController : Form
         // Local lyrics and Foobar audio are unchanged.
     }
 
+    private void EnsureCastingCanvas()
+    {
+        if (_castCanvas == null)
+        {
+            _castCanvas = new LyricsCanvas(CurrentCastFrame, _artwork,
+                _display, _idleBackground) { Size = new Size(1280, 720) };
+        }
+        _castCaptureTimer.Start();
+        CaptureCastFrame();
+    }
+
+    private void ReleaseCastingCanvasIfUnused()
+    {
+        if (_castServer != null || _directTv is { IsConnected: true }) return;
+        _castCaptureTimer.Stop();
+        _castCanvas?.Dispose();
+        _castCanvas = null;
+        _castButton.Text = "TV / Cast";
+    }
+
+    private async Task ConnectDirectTvAsync()
+    {
+        using var picker = new DirectTvPicker();
+        if (picker.ShowDialog(this) != DialogResult.OK ||
+            picker.SelectedDevice == null) return;
+
+        StopDirectTv();
+        _notice = "Connecting to Melisma Receiver on " +
+            picker.SelectedDevice.Address + "…";
+        try
+        {
+            using var timeout = new CancellationTokenSource(
+                TimeSpan.FromSeconds(8));
+            var connected = await DirectTvSender.ConnectAsync(
+                picker.SelectedDevice, picker.PairingCode, timeout.Token);
+            if (IsDisposed) { connected.Dispose(); return; }
+            _directTv = connected;
+            connected.Disconnected += message =>
+            {
+                if (!IsDisposed && IsHandleCreated)
+                    BeginInvoke(new Action(() =>
+                    {
+                        if (!IsDisposed && ReferenceEquals(_directTv, connected))
+                        {
+                            _notice = message;
+                            StopDirectTv();
+                        }
+                    }));
+            };
+            EnsureCastingCanvas();
+            _castButton.Text = "TV connected";
+            _notice = "Direct lyrics cast active: " +
+                picker.SelectedDevice.Name + " · Foobar audio stays on PC";
+        }
+        catch (Exception ex) when (ex is IOException or SocketException or
+            UnauthorizedAccessException or InvalidOperationException or
+            ArgumentException or OperationCanceledException)
+        {
+            _notice = "Cannot connect to TV: " + ex.Message;
+            MessageBox.Show(this, _notice +
+                "\n\nOpen Melisma Receiver on the TV and check its code. " +
+                "If discovery fails, use the IP address displayed on the TV.",
+                "Melisma · Direct TV receiver",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    private void StopDirectTv()
+    {
+        _directTv?.Dispose();
+        _directTv = null;
+        ReleaseCastingCanvasIfUnused();
+    }
+
     private void OpenCastTab()
     {
         try
         {
             if (_castServer == null)
             {
-                _castCanvas = new LyricsCanvas(CurrentCastFrame, _artwork,
-                    _display, _idleBackground)
-                {
-                    Size = new Size(1280, 720)
-                };
                 _castServer = new CastTabServer();
                 _castServer.Start();
-                CaptureCastFrame();
-                _castCaptureTimer.Start();
+                EnsureCastingCanvas();
             }
             Process.Start(new ProcessStartInfo(_castServer.Address)
                 { UseShellExecute = true });
@@ -1096,29 +1171,29 @@ internal sealed class LyricsController : Form
 
     private void CaptureCastFrame()
     {
-        if (_castServer == null || _castCanvas == null || IsDisposed) return;
+        if ((_castServer == null && _directTv == null) ||
+            _castCanvas == null || IsDisposed) return;
         try
         {
             var jpeg = _castCanvas.RenderCastJpeg();
-            _castServer.Publish(jpeg);
+            _castServer?.Publish(jpeg);
+            _directTv?.Publish(jpeg);
         }
         catch (Exception ex) when (ex is ArgumentException or
             OutOfMemoryException or InvalidOperationException or
             System.Runtime.InteropServices.ExternalException)
         {
             _notice = "Casting image failed: " + ex.GetType().Name;
+            StopDirectTv();
             StopCastTab();
         }
     }
 
     private void StopCastTab()
     {
-        _castCaptureTimer.Stop();
         _castServer?.Dispose();
         _castServer = null;
-        _castCanvas?.Dispose();
-        _castCanvas = null;
-        _castButton.Text = "TV / Cast";
+        ReleaseCastingCanvasIfUnused();
     }
 
     private void OpenLrc(object? sender, EventArgs e)
