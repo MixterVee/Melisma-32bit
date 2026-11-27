@@ -1,3 +1,37 @@
+# Melisma Universal Windows v0.6.25 — browser-free karaoke receiver (test build)
+
+The user asked for **karaoke lyrics on Android TVs without using Chrome or a browser**. This builds directly on the proven v0.6.23 animations/spacing/artwork/three-dot baseline and retains v0.6.24's browser tab option as a fallback.
+
+### Install TWO pieces
+
+**Windows:** Extract Melisma Windows v0.6.25 x64 to its own folder. Keep **Foobar Bridge v0.4** (no bridge upgrade). The new **TV / Cast** menu includes **Connect directly to Android TV (no browser)** at the top.
+
+**Android TV:** Install `Melisma-TV-Receiver-v0.1.0.apk` once on your Shield, Onn 4K Pro, or TCL/Google TV. Open **Melisma Receiver** on that TV. It displays its IP and a stable six-digit pairing code. Select that receiver in Windows Melisma's device picker and enter the displayed code. If discovery fails, manually enter the TV IP; the TCP connection is outgoing from Windows. Select **Stop direct TV casting** to disconnect. Android TV remote OK toggles the receiver instructions; Back exits.
+
+### What it does
+
+- Streams only 1280×720 rendered karaoke frames (lyrics, word animations, 3 dots, album covers) directly from Melisma Windows to the TV companion over the LAN, with a single authenticated TCP connection. No browser, WebView, Google Cast receiver registration, files, credentials or music transfer.
+- Uses the v0.6.24 **Cast lyric timing (TV only)** adjustment, independent of Foobar and PC lyric timing. Frames are pushed up to **10 fps** only when direct cast/browser tab is enabled, and the sender drops old frames instead of accumulating lag.
+- The Android TV app discovers on UDP port 47916 and receives paired frames on TCP port 49831. No inbound Windows service is needed. Discovery may fail across VPNs/VLANs; manual IP remains available.
+- **Not the Google Cast protocol**: the TV companion is required. The audio still plays through Foobar2000's configured Windows output. Check your actual TV-surround audio routing before guests arrive; the receiver does not carry audio or use a microphone.
+- Keeps Chrome tab casting and existing HDMI extended-display projection as fallback. No changes to v0.6.23 lyrics, provider caching, native Foobar restart safety or audio components.
+
+### Acceptance steps
+
+1. Test on ONE Shield, Onn, or TCL TV first: launch receiver, scan from Windows, pair with the six-digit code, confirm stable fullscreen lyrics and correct timing.
+2. Change songs, seek, pause and resume, exit/reopen Foobar, test interlude dots, background/cover crossfades, and word spacing. Old lyrics must **never** scroll to another song.
+3. Adjust TV-only lead ±250 ms until karaoke visually matches the audio path. This does not affect actual playback or per-song offset.
+4. Close/launch the receiver, disable Wi-Fi temporarily, press **Stop direct TV casting**, and reconnect. No freezing, stuck audio, accumulating latency or Windows Firewall setup should be required on a normal trusted LAN.
+5. Repeat on the other TV devices if desired, and keep the **last visually verified v0.6.23** folder as rollback for the party.
+
+**Security:** The direct TV JPEG stream uses a six-digit code over an unencrypted home LAN connection. Use only on your own trusted network; it is not a secure remote Internet streaming feature.
+
+### Future optional improvements
+
+Once casting is verified, integrate Foobar Stem Separator's existing **Instrumental** mode into a karaoke control panel. This should happen in a separate build and never compromise this stable lyrics/audio synchronization path.
+
+---
+
 # Melisma Universal Windows v0.6.24 — lyrics-only Google Cast (party test)
 
 ## Goal: cast karaoke lyrics to Android TV; keep Foobar audio separate
