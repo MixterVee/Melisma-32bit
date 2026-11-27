@@ -56,7 +56,6 @@ internal sealed class LyricsController : Form
     private readonly LyricsCanvas _preview;
     private GlobalSystemMediaTransportControlsSessionManager? _manager;
     private KaraokeDisplay? _projection;
-    private KaraokeDisplay? _primaryProjection;
     private CastTabServer? _castServer;
     private LyricsCanvas? _castCanvas;
     private readonly System.Windows.Forms.Timer _castCaptureTimer = new()
@@ -172,10 +171,8 @@ internal sealed class LyricsController : Form
 
         _secondScreenButton.Click += ToggleSecondScreen;
         toolbar.Controls.Add(_secondScreenButton);
-        _castMenu.Items.Add("Google Cast: live lyrics tab",
+        _castMenu.Items.Add("Cast lyrics only to TV (Chrome tab)",
             null, (_, _) => OpenCastTab());
-        _castMenu.Items.Add("Cast screen: full-screen karaoke",
-            null, (_, _) => OpenPrimaryKaraoke());
         _castMenu.Items.Add("HDMI / extended TV display",
             null, (_, _) => ToggleSecondScreen(this, EventArgs.Empty));
         _castMenu.Items.Add(new ToolStripSeparator());
@@ -255,7 +252,6 @@ internal sealed class LyricsController : Form
             // Single shared paint clock: attached TV displays never start
             // independent lyric retrievals or playback timers.
             _projection?.Redraw();
-            _primaryProjection?.Redraw();
             if (hint.Text != _notice) hint.Text = _notice;
         };
         _mediaTimer.Tick += async (_, _) => await PollMediaAsync();
@@ -284,7 +280,6 @@ internal sealed class LyricsController : Form
             _searchCancellation?.Cancel();
             _searchCancellation?.Dispose();
             _projection?.Close();
-            _primaryProjection?.Close();
             _settingsWindow?.Close();
             _artwork.Dispose();
         };
@@ -981,43 +976,26 @@ internal sealed class LyricsController : Form
     private void ShowCastGuide()
     {
         MessageBox.Show(this,
-            "KARAOKE + FOOBAR AUDIO THROUGH THE TV\n\n" +
-            "1. In Chrome open the ⋮ menu → Cast, save, and share → Cast.\n" +
-            "2. Under Sources choose Cast screen, then your Shield, Onn or Google TV.\n" +
-            "3. If Chrome offers audio sharing, enable it. Windows desktop " +
-                "audio casting depends on the receiver/setup; verify the TV speakers.\n" +
-            "4. Back in Melisma choose TV / Cast → Cast screen: full-screen karaoke.\n" +
-            "5. Press Esc to return to Melisma's controls.\n\n" +
-            "LYRICS-ONLY CASTING (CONTROLS REMAIN AVAILABLE)\n\n" +
-            "1. Choose TV / Cast → Google Cast: live lyrics tab.\n" +
-            "2. In Chrome cast THAT TAB to your TV. Leave the tab open.\n" +
-            "3. Foobar audio remains on its configured Windows audio output; " +
-                "it is NOT included in tab casting.\n\n" +
-            "The tab source stays on your PC (127.0.0.1), with no LAN server, " +
-            "MP3 files, passwords or inbound router ports exposed. " +
-            "This uses Chrome's Cast menu; a direct native Google Cast " +
-            "receiver would require separate app registration.\n\n" +
-            "For the most dependable low-latency party setup, connect your " +
-            "laptop to the surround-system TV using HDMI and choose " +
-            "Second screen with Windows Extend.",
-            "Melisma · TV casting and sound",
+            "CAST LYRICS ONLY · FOOBAR KEEPS PLAYING THE MUSIC\n\n" +
+            "1. In Melisma, select TV / Cast → Cast lyrics only to TV.\n" +
+            "2. The lyrics page opens in your default browser. " +
+                "Use Google Chrome for casting.\n" +
+            "3. In Chrome choose ⋮ → Cast, save, and share → Cast " +
+                "(menu wording may differ).\n" +
+            "4. Under Sources choose CAST TAB, not Cast screen.\n" +
+            "5. Select your Shield, Onn 4K Pro or Google TV, and leave " +
+                "that Chrome tab open. Music stays under Foobar2000's control.\n\n" +
+            "IMPORTANT: This cast carries LYRICS ONLY, NOT Foobar AUDIO. " +
+            "Choose the Windows audio output that feeds your speakers or " +
+            "surround system separately. Chrome casting can introduce " +
+            "some visual delay; adjust Melisma's lyric timing if needed.\n\n" +
+            "The browser page is served only on this PC at 127.0.0.1. " +
+            "No MP3s, passwords, or files are shared with the TV, and " +
+            "no router port forwarding is necessary.\n\n" +
+            "For a cable-based fallback, use HDMI/extended display. " +
+            "The original v0.6.23 lyric/album and playback behavior remains.",
+            "Melisma · Cast lyrics (no music)",
             MessageBoxButtons.OK, MessageBoxIcon.Information);
-    }
-
-    private void OpenPrimaryKaraoke()
-    {
-        if (_primaryProjection != null)
-        {
-            _primaryProjection.Activate();
-            return;
-        }
-        var screen = Screen.FromControl(this);
-        _primaryProjection = new KaraokeDisplay(screen, CurrentFrame,
-            _artwork, _display, _idleBackground);
-        _primaryProjection.FormClosed += (_, _) => _primaryProjection = null;
-        _primaryProjection.Show(this);
-        _primaryProjection.BringToFront();
-        _notice = "Full-screen karaoke · Press Esc to return to controller";
     }
 
     private void OpenCastTab()
@@ -1038,8 +1016,8 @@ internal sealed class LyricsController : Form
             }
             Process.Start(new ProcessStartInfo(_castServer.Address)
                 { UseShellExecute = true });
-            _notice = "Cast tab ready · Chrome → Cast → Cast tab → select your TV";
-            _castButton.Text = "Cast ready";
+            _notice = "Lyrics cast page ready · Chrome → Cast → Cast tab → TV";
+            _castButton.Text = "Lyrics cast";
         }
         catch (Exception ex) when (ex is IOException or SocketException or
             System.ComponentModel.Win32Exception or InvalidOperationException)
