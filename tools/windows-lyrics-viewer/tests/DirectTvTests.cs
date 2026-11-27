@@ -13,6 +13,22 @@ internal static class DirectTvTests
               TvReceiverDiscovery.ReceiverPort == 49831 &&
               TvReceiverDiscovery.DiscoveryPort == 47916,
             "Windows direct-cast protocol matches native Android TV receiver ports");
+        check(TvReceiverDiscovery.RecoverableReceiveError(
+                    SocketError.ConnectionReset) &&
+              TvReceiverDiscovery.RecoverableReceiveError(
+                    SocketError.ConnectionRefused) &&
+              TvReceiverDiscovery.RecoverableReceiveError(
+                    SocketError.NetworkReset) &&
+              !TvReceiverDiscovery.RecoverableReceiveError(
+                    SocketError.AccessDenied),
+            "Unreachable UDP broadcast targets never abort TV discovery; real errors remain visible");
+        // The old Windows scanner failed here when an unanswered UDP
+        // broadcast came back as WSAECONNRESET. Scan should complete and
+        // return an empty or populated list, not an error dialog.
+        var scan = TvReceiverDiscovery.ScanAsync(
+            TimeSpan.FromMilliseconds(400)).GetAwaiter().GetResult();
+        check(scan != null,
+            "Live Windows UDP scan tolerates absent receivers and ICMP errors");
 
         using var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();

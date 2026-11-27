@@ -1,3 +1,19 @@
+# Melisma Universal Windows v0.6.26 — readable TV picker & reliable discovery
+
+**User screenshot feedback:** The v0.6.25 Android TV connection dialog was too small for high-DPI Windows: explanatory text ended mid-sentence, the TV IP and pairing code input labels were truncated, the full Windows discovery error was cut off, and all three bottom buttons were partly hidden.
+
+**Two focused corrections** (same Foobar Bridge v0.4 and Android TV Receiver v0.1.0):
+
+- The TV picker is now larger (**690×468 logical client area**) with a minimum resizable window size, scrollable last-resort layout, extra space for guidance/scan status, and proportionally allocated **TV IP** / **Pairing code** fields instead of the old narrow, horizontally clipped flow row. Scan again / Cancel / Connect are fully visible.
+- On Windows, a UDP broadcast to an interface with no receiver can raise `WSAECONNRESET` ("An existing connection was forcibly closed…") on the next receive, even though the actual Android TV is fine. Disable that Windows UDP-reset behavior where supported, and explicitly ignore recoverable UDP ICMP/reset errors from individual broadcast targets while continuing the discovery window. A genuine connectivity or permission error still surfaces with manual-IP fallback.
+- Test suite includes expected recoverable SocketError classes and a short real Windows UDP scan that must not crash when no TV replies.
+
+**Test:** Keep your existing **Melisma Receiver APK v0.1.0** on the Android TV; replace only Windows Melisma with v0.6.26 in a separate directory. Open **TV / Cast → Connect directly to Android TV**. You should see the entire prompt, both input fields and three intact buttons. Open the Receiver on the TV and try automatic discovery. If still no receiver appears, enter the TV's displayed IP and six-digit code; manual pairing remains supported.
+
+This does not modify Foobar audio, lyrics, album crossfades, timing, the Receiver APK, or the direct-cast transport.
+
+---
+
 # Melisma Universal Windows v0.6.25 — browser-free karaoke receiver (test build)
 
 The user asked for **karaoke lyrics on Android TVs without using Chrome or a browser**. This builds directly on the proven v0.6.23 animations/spacing/artwork/three-dot baseline and retains v0.6.24's browser tab option as a fallback.

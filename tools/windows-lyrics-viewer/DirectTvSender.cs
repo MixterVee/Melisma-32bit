@@ -24,11 +24,32 @@ internal static class TvReceiverDiscovery
     internal const string Probe = "MELISMA_DISCOVER_V1";
     internal const string Reply = "MELISMA_TV_V1|";
 
+    // Broadcasting to unused IPs can make Windows deliver an asynchronous
+    // ICMP "port unreachable" as WSAECONNRESET on ReceiveAsync. This is not
+    // a broken TV connection; the old picker aborted its entire scan.
+    internal static bool RecoverableReceiveError(SocketError error) =>
+        error is SocketError.ConnectionReset or SocketError.ConnectionRefused or
+            SocketError.NetworkReset or SocketError.HostUnreachable or
+            SocketError.NetworkUnreachable;
+
     internal static async Task<IReadOnlyList<TvReceiverDevice>> ScanAsync(
         TimeSpan duration, CancellationToken cancellationToken = default)
     {
         using var sender = new UdpClient(new IPEndPoint(IPAddress.Any, 0));
         sender.EnableBroadcast = true;
+        // Windows SIO_UDP_CONNRESET: don't turn ICMP replies from
+        // unreachable broadcast targets into fatal UDP receive exceptions.
+        // Other platforms can simply use the recoverable-error catch below.
+        if (OperatingSystem.IsWindows())
+        {
+            try
+            {
+                sender.Client.IOControl((IOControlCode)0x9800000C,
+                    [0, 0, 0, 0], null);
+            }
+            catch (SocketException) { /* Fall back to ReceiveAsync retry. */ }
+            catch (NotSupportedException) { /* Fall back to retry. */ }
+        }
         byte[] probe = Encoding.ASCII.GetBytes(Probe);
         var broadcastTargets = new HashSet<string> { IPAddress.Broadcast.ToString() };
         foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
@@ -65,7 +86,18 @@ internal static class TvReceiverDiscovery
         {
             while (!timeout.IsCancellationRequested)
             {
-                UdpReceiveResult reply = await sender.ReceiveAsync(timeout.Token);
+                UdpReceiveResult reply;
+                try
+                {
+                    reply = await sender.ReceiveAsync(timeout.Token);
+                }
+                catch (SocketException ex) when
+                    (RecoverableReceiveError(ex.SocketErrorCode))
+                {
+                    // One unreachable broadcast address must not abort
+                    // discovery of a different, healthy Android TV.
+                    continue;
+                }
                 string value = Encoding.UTF8.GetString(reply.Buffer);
                 if (!value.StartsWith(Reply, StringComparison.Ordinal)) continue;
                 string[] parts = value.Split('|', 3);
