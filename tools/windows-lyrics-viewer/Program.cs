@@ -9,6 +9,7 @@ using System.Text.RegularExpressions;
 using Windows.Media.Control;
 using Windows.Storage.Streams;
 using System.Drawing.Imaging;
+using System.Diagnostics;
 
 namespace MelismaLyricsViewer;
 
@@ -54,6 +55,13 @@ internal sealed class LyricsController : Form
     private readonly LyricsCanvas _preview;
     private GlobalSystemMediaTransportControlsSessionManager? _manager;
     private KaraokeDisplay? _projection;
+    private KaraokeDisplay? _primaryProjection;
+    private CastTabServer? _castServer;
+    private LyricsCanvas? _castCanvas;
+    private readonly System.Windows.Forms.Timer _castCaptureTimer = new()
+        { Interval = 100 }; // max 10 fps; only runs when Cast tab enabled
+    private readonly ContextMenuStrip _castMenu = new();
+    private readonly Button _castButton = Button("TV / Cast", 112);
     private bool _mediaBusy;
     private readonly List<LrcLine> _lines = new();
     private string _plainLyrics = "";
@@ -100,7 +108,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.23";
+        Text = "Melisma Universal · Windows v0.6.24";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -163,6 +171,22 @@ internal sealed class LyricsController : Form
 
         _secondScreenButton.Click += ToggleSecondScreen;
         toolbar.Controls.Add(_secondScreenButton);
+        _castMenu.Items.Add("Google Cast: live lyrics tab",
+            null, (_, _) => OpenCastTab());
+        _castMenu.Items.Add("Cast screen: full-screen karaoke",
+            null, (_, _) => OpenPrimaryKaraoke());
+        _castMenu.Items.Add("HDMI / extended TV display",
+            null, (_, _) => ToggleSecondScreen(this, EventArgs.Empty));
+        _castMenu.Items.Add(new ToolStripSeparator());
+        _castMenu.Items.Add("Copy cast-tab address",
+            null, (_, _) => CopyCastAddress());
+        _castMenu.Items.Add("Stop cast-tab sharing",
+            null, (_, _) => StopCastTab());
+        _castMenu.Items.Add("Casting and audio instructions",
+            null, (_, _) => ShowCastGuide());
+        _castButton.Click += (_, _) => _castMenu.Show(_castButton,
+            new Point(0, _castButton.Height));
+        toolbar.Controls.Add(_castButton);
         toolbarArea.Controls.Add(toolbar, 0, 0);
 
         var extraControls = new FlowLayoutPanel
@@ -227,8 +251,10 @@ internal sealed class LyricsController : Form
 
             if (WindowState != FormWindowState.Minimized && _preview.Visible)
                 _preview.Invalidate();
-            // Single shared paint clock: the TV must not paint twice.
+            // Single shared paint clock: attached TV displays never start
+            // independent lyric retrievals or playback timers.
             _projection?.Redraw();
+            _primaryProjection?.Redraw();
             if (hint.Text != _notice) hint.Text = _notice;
         };
         _mediaTimer.Tick += async (_, _) => await PollMediaAsync();
@@ -243,9 +269,12 @@ internal sealed class LyricsController : Form
             }
             catch (Exception ex) { _notice = "Windows media access failed: " + ex.Message; }
         };
+        _castCaptureTimer.Tick += (_, _) => CaptureCastFrame();
         FormClosing += (_, _) => ControllerWindowPlacement.Save(this);
         FormClosed += (_, _) =>
         {
+            StopCastTab();
+            _castMenu.Dispose();
             _screenTimer.Stop();
             _mediaTimer.Stop();
             _bridge.Dispose();
@@ -254,6 +283,7 @@ internal sealed class LyricsController : Form
             _searchCancellation?.Cancel();
             _searchCancellation?.Dispose();
             _projection?.Close();
+            _primaryProjection?.Close();
             _settingsWindow?.Close();
             _artwork.Dispose();
         };
@@ -945,6 +975,125 @@ internal sealed class LyricsController : Form
         };
         _projection.Show(this);
         _secondScreenButton.Text = "Close second";
+    }
+
+    private void ShowCastGuide()
+    {
+        MessageBox.Show(this,
+            "KARAOKE + FOOBAR AUDIO THROUGH THE TV\n\n" +
+            "1. In Chrome open the ⋮ menu → Cast, save, and share → Cast.\n" +
+            "2. Under Sources choose Cast screen, then your Shield, Onn or Google TV.\n" +
+            "3. If Chrome offers audio sharing, enable it. Windows desktop " +
+                "audio casting depends on the receiver/setup; verify the TV speakers.\n" +
+            "4. Back in Melisma choose TV / Cast → Cast screen: full-screen karaoke.\n" +
+            "5. Press Esc to return to Melisma's controls.\n\n" +
+            "LYRICS-ONLY CASTING (CONTROLS REMAIN AVAILABLE)\n\n" +
+            "1. Choose TV / Cast → Google Cast: live lyrics tab.\n" +
+            "2. In Chrome cast THAT TAB to your TV. Leave the tab open.\n" +
+            "3. Foobar audio remains on its configured Windows audio output; " +
+                "it is NOT included in tab casting.\n\n" +
+            "The tab source stays on your PC (127.0.0.1), with no LAN server, " +
+            "MP3 files, passwords or inbound router ports exposed. " +
+            "This uses Chrome's Cast menu; a direct native Google Cast " +
+            "receiver would require separate app registration.\n\n" +
+            "For the most dependable low-latency party setup, connect your " +
+            "laptop to the surround-system TV using HDMI and choose " +
+            "Second screen with Windows Extend.",
+            "Melisma · TV casting and sound",
+            MessageBoxButtons.OK, MessageBoxIcon.Information);
+    }
+
+    private void OpenPrimaryKaraoke()
+    {
+        if (_primaryProjection != null)
+        {
+            _primaryProjection.Activate();
+            return;
+        }
+        var screen = Screen.FromControl(this);
+        _primaryProjection = new KaraokeDisplay(screen, CurrentFrame,
+            _artwork, _display, _idleBackground);
+        _primaryProjection.FormClosed += (_, _) => _primaryProjection = null;
+        _primaryProjection.Show(this);
+        _primaryProjection.BringToFront();
+        _notice = "Full-screen karaoke · Press Esc to return to controller";
+    }
+
+    private void OpenCastTab()
+    {
+        try
+        {
+            if (_castServer == null)
+            {
+                _castCanvas = new LyricsCanvas(CurrentFrame, _artwork,
+                    _display, _idleBackground)
+                {
+                    Size = new Size(1280, 720)
+                };
+                _castServer = new CastTabServer();
+                _castServer.Start();
+                CaptureCastFrame();
+                _castCaptureTimer.Start();
+            }
+            Process.Start(new ProcessStartInfo(_castServer.Address)
+                { UseShellExecute = true });
+            _notice = "Cast tab ready · Chrome → Cast → Cast tab → select your TV";
+            _castButton.Text = "Cast ready";
+        }
+        catch (Exception ex) when (ex is IOException or SocketException or
+            System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            _notice = "Unable to open cast page: " + ex.Message;
+            StopCastTab();
+            MessageBox.Show(this, _notice, "Melisma TV casting",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    private void CopyCastAddress()
+    {
+        if (_castServer == null)
+        {
+            OpenCastTab();
+            if (_castServer == null) return;
+        }
+        try
+        {
+            Clipboard.SetText(_castServer.Address);
+            _notice = "Chrome casting page address copied";
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.ExternalException or
+            InvalidOperationException)
+        {
+            _notice = "Unable to copy cast page address: " + ex.Message;
+        }
+    }
+
+    private void CaptureCastFrame()
+    {
+        if (_castServer == null || _castCanvas == null || IsDisposed) return;
+        try
+        {
+            var jpeg = _castCanvas.RenderCastJpeg();
+            _castServer.Publish(jpeg);
+        }
+        catch (Exception ex) when (ex is ArgumentException or
+            OutOfMemoryException or InvalidOperationException or
+            System.Runtime.InteropServices.ExternalException)
+        {
+            _notice = "Casting image failed: " + ex.GetType().Name;
+            StopCastTab();
+        }
+    }
+
+    private void StopCastTab()
+    {
+        _castCaptureTimer.Stop();
+        _castServer?.Dispose();
+        _castServer = null;
+        _castCanvas?.Dispose();
+        _castCanvas = null;
+        _castButton.Text = "TV / Cast";
     }
 
     private void OpenLrc(object? sender, EventArgs e)
@@ -1768,6 +1917,34 @@ internal sealed class LyricsCanvas : Control
             _plainScrollLines = Math.Max(0, _plainScrollLines - Math.Sign(e.Delta) * 3);
             Invalidate();
         };
+    }
+
+    // Render a dedicated 1280x720 off-screen TV canvas for the local
+    // Chrome Cast tab. Reuses this exact renderer (with all animation,
+    // artwork, source attribution and synchronization); no parallel lyric
+    // engine, external MP3 streaming or additional 25ms paint timer.
+    internal byte[] RenderCastJpeg()
+    {
+        using var bitmap = new Bitmap(1280, 720, PixelFormat.Format24bppRgb);
+        using (var graphics = Graphics.FromImage(bitmap))
+        {
+            using var paint = new PaintEventArgs(graphics,
+                new Rectangle(0, 0, 1280, 720));
+            OnPaint(paint);
+        }
+        using var bytes = new MemoryStream();
+        var encoder = ImageCodecInfo.GetImageEncoders()
+            .FirstOrDefault(x => x.MimeType == "image/jpeg");
+        if (encoder == null)
+            bitmap.Save(bytes, ImageFormat.Jpeg);
+        else
+        {
+            using var parameters = new EncoderParameters(1);
+            parameters.Param[0] = new EncoderParameter(
+                System.Drawing.Imaging.Encoder.Quality, 78L);
+            bitmap.Save(bytes, encoder, parameters);
+        }
+        return bytes.ToArray();
     }
 
     protected override void OnPaintBackground(PaintEventArgs e)
