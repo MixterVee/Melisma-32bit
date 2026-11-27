@@ -7,6 +7,25 @@ internal static class CastTabTests
 {
     internal static void Run(Action<bool, string> check)
     {
+        check(CastPlaybackTiming.ClampLead(8000) == 4000 &&
+              CastPlaybackTiming.ClampLead(-8000) == -4000,
+            "Cast-only advance is bounded without altering audio playback");
+        check(CastPlaybackTiming.Apply(1500, 500) == 2000 &&
+              CastPlaybackTiming.Apply(1500, -500) == 1000 &&
+              CastPlaybackTiming.Apply(200, -1500) == 0,
+            "Cast can present words early/late without negative playback times");
+        IReadOnlyList<LrcLine> words =
+        [
+            new LrcLine(1000, "First lyric"),
+            new LrcLine(2000, "Second lyric")
+        ];
+        check(CastPlaybackTiming.ActiveLine(words, 1750) == 0 &&
+              CastPlaybackTiming.ActiveLine(words,
+                  CastPlaybackTiming.Apply(1750, 500)) == 1 &&
+              CastPlaybackTiming.ActiveLine(words,
+                  CastPlaybackTiming.Apply(1750, -1000)) == -1,
+            "TV-only latency compensation independently moves the active sung line");
+
         using var server = new CastTabServer();
         server.Start();
         check(server.Port > 0 && new Uri(server.Address).Host == "127.0.0.1" &&
