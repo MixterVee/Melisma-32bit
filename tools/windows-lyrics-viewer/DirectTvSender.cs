@@ -95,6 +95,7 @@ internal sealed class DirectTvSender : IDisposable
         });
     private readonly CancellationTokenSource _stop = new();
     private int _connected = 1;
+    private int _disposed;
     private long _sentFrames;
 
     private DirectTvSender(TcpClient client) => _client = client;
@@ -169,6 +170,7 @@ internal sealed class DirectTvSender : IDisposable
 
     public void Dispose()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         Interlocked.Exchange(ref _connected, 0);
         _images.Writer.TryComplete();
         _stop.Cancel();
