@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO.MemoryMappedFiles;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Sockets;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Windows.Media.Control;
