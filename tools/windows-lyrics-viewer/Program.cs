@@ -4,11 +4,13 @@ using System.Globalization;
 using System.IO.MemoryMappedFiles;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Sockets;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Windows.Media.Control;
 using Windows.Storage.Streams;
 using System.Drawing.Imaging;
+using System.Diagnostics;
 
 namespace MelismaLyricsViewer;
 
@@ -54,6 +56,14 @@ internal sealed class LyricsController : Form
     private readonly LyricsCanvas _preview;
     private GlobalSystemMediaTransportControlsSessionManager? _manager;
     private KaraokeDisplay? _projection;
+    private CastTabServer? _castServer;
+    private LyricsCanvas? _castCanvas;
+    private int _castLeadMs = CastTimingSettings.Read();
+    private ToolStripMenuItem? _castTimingMenu;
+    private readonly System.Windows.Forms.Timer _castCaptureTimer = new()
+        { Interval = 100 }; // max 10 fps; only runs when Cast tab enabled
+    private readonly ContextMenuStrip _castMenu = new();
+    private readonly Button _castButton = Button("TV / Cast", 112);
     private bool _mediaBusy;
     private readonly List<LrcLine> _lines = new();
     private string _plainLyrics = "";
@@ -100,7 +110,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.23";
+        Text = "Melisma Universal · Windows v0.6.24";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -163,6 +173,29 @@ internal sealed class LyricsController : Form
 
         _secondScreenButton.Click += ToggleSecondScreen;
         toolbar.Controls.Add(_secondScreenButton);
+        _castMenu.Items.Add("Cast lyrics only to TV (Chrome tab)",
+            null, (_, _) => OpenCastTab());
+        _castMenu.Items.Add("HDMI / extended TV display",
+            null, (_, _) => ToggleSecondScreen(this, EventArgs.Empty));
+        _castMenu.Items.Add(new ToolStripSeparator());
+        _castTimingMenu = new ToolStripMenuItem("Cast lyric timing (TV only)");
+        _castTimingMenu.DropDownItems.Add("Show words 250 ms earlier",
+            null, (_, _) => AdjustCastTiming(CastPlaybackTiming.StepMs));
+        _castTimingMenu.DropDownItems.Add("Show words 250 ms later",
+            null, (_, _) => AdjustCastTiming(-CastPlaybackTiming.StepMs));
+        _castTimingMenu.DropDownItems.Add("Reset cast timing",
+            null, (_, _) => AdjustCastTiming(-_castLeadMs));
+        _castMenu.Items.Add(_castTimingMenu);
+        UpdateCastTimingLabel();
+        _castMenu.Items.Add("Copy cast-tab address",
+            null, (_, _) => CopyCastAddress());
+        _castMenu.Items.Add("Stop cast-tab sharing",
+            null, (_, _) => StopCastTab());
+        _castMenu.Items.Add("Casting and audio instructions",
+            null, (_, _) => ShowCastGuide());
+        _castButton.Click += (_, _) => _castMenu.Show(_castButton,
+            new Point(0, _castButton.Height));
+        toolbar.Controls.Add(_castButton);
         toolbarArea.Controls.Add(toolbar, 0, 0);
 
         var extraControls = new FlowLayoutPanel
@@ -227,7 +260,8 @@ internal sealed class LyricsController : Form
 
             if (WindowState != FormWindowState.Minimized && _preview.Visible)
                 _preview.Invalidate();
-            // Single shared paint clock: the TV must not paint twice.
+            // Single shared paint clock: attached TV displays never start
+            // independent lyric retrievals or playback timers.
             _projection?.Redraw();
             if (hint.Text != _notice) hint.Text = _notice;
         };
@@ -243,9 +277,12 @@ internal sealed class LyricsController : Form
             }
             catch (Exception ex) { _notice = "Windows media access failed: " + ex.Message; }
         };
+        _castCaptureTimer.Tick += (_, _) => CaptureCastFrame();
         FormClosing += (_, _) => ControllerWindowPlacement.Save(this);
         FormClosed += (_, _) =>
         {
+            StopCastTab();
+            _castMenu.Dispose();
             _screenTimer.Stop();
             _mediaTimer.Stop();
             _bridge.Dispose();
@@ -945,6 +982,143 @@ internal sealed class LyricsController : Form
         };
         _projection.Show(this);
         _secondScreenButton.Text = "Close second";
+    }
+
+    private void ShowCastGuide()
+    {
+        MessageBox.Show(this,
+            "CAST LYRICS ONLY · FOOBAR KEEPS PLAYING THE MUSIC\n\n" +
+            "1. In Melisma, select TV / Cast → Cast lyrics only to TV.\n" +
+            "2. The lyrics page opens in your default browser. " +
+                "Use Google Chrome for casting.\n" +
+            "3. In Chrome choose ⋮ → Cast, save, and share → Cast " +
+                "(menu wording may differ).\n" +
+            "4. Under Sources choose CAST TAB, not Cast screen.\n" +
+            "5. Select your Shield, Onn 4K Pro or Google TV, and leave " +
+                "that Chrome tab open. Music stays under Foobar2000's control.\n\n" +
+            "IMPORTANT: This cast carries LYRICS ONLY, NOT Foobar AUDIO. " +
+            "Choose the Windows audio output that feeds your speakers or " +
+            "surround system separately. Chrome casting can introduce " +
+            "some visual delay. If TV lyrics lag behind the music, use " +
+            "TV / Cast → Cast lyric timing → Show words earlier. This " +
+            "adjustment affects ONLY the TV, not PC lyrics or Foobar.\n\n" +
+            "The browser page is served only on this PC at 127.0.0.1. " +
+            "No MP3s, passwords, or files are shared with the TV, and " +
+            "no router port forwarding is necessary.\n\n" +
+            "For a cable-based fallback, use HDMI/extended display. " +
+            "The original v0.6.23 lyric/album and playback behavior remains.",
+            "Melisma · Cast lyrics (no music)",
+            MessageBoxButtons.OK, MessageBoxIcon.Information);
+    }
+
+    private LyricFrame CurrentCastFrame()
+    {
+        var frame = CurrentFrame();
+        if (_castLeadMs == 0 || frame.Lines.Count == 0) return frame;
+        long shifted = CastPlaybackTiming.Apply(frame.LyricPositionMs, _castLeadMs);
+        return frame with
+        {
+            LyricPositionMs = shifted,
+            ActiveIndex = CastPlaybackTiming.ActiveLine(frame.Lines, shifted)
+        };
+    }
+
+    private void UpdateCastTimingLabel()
+    {
+        if (_castTimingMenu == null) return;
+        _castTimingMenu.Text = _castLeadMs == 0
+            ? "Cast lyric timing: 0 ms (TV only)"
+            : _castLeadMs > 0
+                ? $"Cast lyric timing: {_castLeadMs:+0;-0} ms (earlier on TV)"
+                : $"Cast lyric timing: {_castLeadMs:+0;-0} ms (later on TV)";
+    }
+
+    private void AdjustCastTiming(int deltaMs)
+    {
+        _castLeadMs = CastPlaybackTiming.ClampLead(_castLeadMs + deltaMs);
+        bool saved = CastTimingSettings.Save(_castLeadMs);
+        UpdateCastTimingLabel();
+        _notice = $"Cast lyrics: {_castLeadMs:+0;-0;0} ms shift" +
+            (saved ? "" : " (not saved)");
+        // The next shared 10fps Cast snapshot adopts the updated timing.
+        // Local lyrics and Foobar audio are unchanged.
+    }
+
+    private void OpenCastTab()
+    {
+        try
+        {
+            if (_castServer == null)
+            {
+                _castCanvas = new LyricsCanvas(CurrentCastFrame, _artwork,
+                    _display, _idleBackground)
+                {
+                    Size = new Size(1280, 720)
+                };
+                _castServer = new CastTabServer();
+                _castServer.Start();
+                CaptureCastFrame();
+                _castCaptureTimer.Start();
+            }
+            Process.Start(new ProcessStartInfo(_castServer.Address)
+                { UseShellExecute = true });
+            _notice = "Lyrics cast page ready · Chrome → Cast → Cast tab → TV";
+            _castButton.Text = "Lyrics cast";
+        }
+        catch (Exception ex) when (ex is IOException or SocketException or
+            System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            _notice = "Unable to open cast page: " + ex.Message;
+            StopCastTab();
+            MessageBox.Show(this, _notice, "Melisma TV casting",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
+    private void CopyCastAddress()
+    {
+        if (_castServer == null)
+        {
+            OpenCastTab();
+            if (_castServer == null) return;
+        }
+        try
+        {
+            Clipboard.SetText(_castServer.Address);
+            _notice = "Chrome casting page address copied";
+        }
+        catch (Exception ex) when (ex is System.Runtime.InteropServices.ExternalException or
+            InvalidOperationException)
+        {
+            _notice = "Unable to copy cast page address: " + ex.Message;
+        }
+    }
+
+    private void CaptureCastFrame()
+    {
+        if (_castServer == null || _castCanvas == null || IsDisposed) return;
+        try
+        {
+            var jpeg = _castCanvas.RenderCastJpeg();
+            _castServer.Publish(jpeg);
+        }
+        catch (Exception ex) when (ex is ArgumentException or
+            OutOfMemoryException or InvalidOperationException or
+            System.Runtime.InteropServices.ExternalException)
+        {
+            _notice = "Casting image failed: " + ex.GetType().Name;
+            StopCastTab();
+        }
+    }
+
+    private void StopCastTab()
+    {
+        _castCaptureTimer.Stop();
+        _castServer?.Dispose();
+        _castServer = null;
+        _castCanvas?.Dispose();
+        _castCanvas = null;
+        _castButton.Text = "TV / Cast";
     }
 
     private void OpenLrc(object? sender, EventArgs e)
@@ -1768,6 +1942,34 @@ internal sealed class LyricsCanvas : Control
             _plainScrollLines = Math.Max(0, _plainScrollLines - Math.Sign(e.Delta) * 3);
             Invalidate();
         };
+    }
+
+    // Render a dedicated 1280x720 off-screen TV canvas for the local
+    // Chrome Cast tab. Reuses this exact renderer (with all animation,
+    // artwork, source attribution and synchronization); no parallel lyric
+    // engine, external MP3 streaming or additional 25ms paint timer.
+    internal byte[] RenderCastJpeg()
+    {
+        using var bitmap = new Bitmap(1280, 720, PixelFormat.Format24bppRgb);
+        using (var graphics = Graphics.FromImage(bitmap))
+        {
+            using var paint = new PaintEventArgs(graphics,
+                new Rectangle(0, 0, 1280, 720));
+            OnPaint(paint);
+        }
+        using var bytes = new MemoryStream();
+        var encoder = ImageCodecInfo.GetImageEncoders()
+            .FirstOrDefault(x => x.MimeType == "image/jpeg");
+        if (encoder == null)
+            bitmap.Save(bytes, ImageFormat.Jpeg);
+        else
+        {
+            using var parameters = new EncoderParameters(1);
+            parameters.Param[0] = new EncoderParameter(
+                System.Drawing.Imaging.Encoder.Quality, 78L);
+            bitmap.Save(bytes, encoder, parameters);
+        }
+        return bytes.ToArray();
     }
 
     protected override void OnPaintBackground(PaintEventArgs e)

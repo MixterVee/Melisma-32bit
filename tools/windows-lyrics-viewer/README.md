@@ -1,3 +1,41 @@
+# Melisma Universal Windows v0.6.24 — lyrics-only Google Cast (party test)
+
+## Goal: cast karaoke lyrics to Android TV; keep Foobar audio separate
+
+The user wants karaoke for guests in a couple of weeks and **explicitly chose casting lyrics only**, rather than sending an entire Windows desktop or a desktop music stream to the TV. Start from the proven **Windows v0.6.23** with **Foobar Bridge v0.4**. All existing word animations, spacing, three-dot motion, first-lyrics fade, cover crossfade, and old-song restart protection stay intact.
+
+### New TV / Cast menu
+
+- **Cast lyrics only to TV (Chrome tab):** starts a local-only HTTP streaming source on `127.0.0.1` and opens its page in the user's default browser. Use Google Chrome's **Cast → Sources → Cast tab** menu to send that page to Shield, Onn 4K Pro or a Google TV. The browser page shows a black, full-window 16:9 karaoke video feed containing Melisma's existing native Windows lyric canvas (including smooth word styling and visuals), without Windows app controls, taskbar, sound, music files or password access.
+- **HDMI / extended TV display:** keeps the working v0.6.23 native second-screen presentation as a fallback for minimal latency.
+- **Cast lyric timing (TV only):** step the TV's displayed lyrics 250 ms earlier or later, or reset to zero. The independent lead is persisted (maximum ±4 seconds); the PC's local lyrics, saved per-song offset, Foobar playback and audio are unaffected. Useful to compensate for tab-casting transport delay.
+- **Stop cast-tab sharing:** stops encoding and the localhost stream when the browser tab is no longer wanted. It doesn't stop Foobar playback.
+- **Copy cast-tab address** and **Casting and audio instructions**.
+
+### Audio caveat — important before guests arrive
+
+**The Chrome tab contains no audio and does not cast Foobar2000's sound.** Foobar plays through the Windows audio device selected for your home surround system or speakers. Test that separately before the party; if the TV itself is the only available audio input, using HDMI for both audio and video is the guaranteed fallback. Chrome Tab casting is not a registered, one-click native Google Cast receiver; the first test uses Chrome's built-in tab-casting flow.
+
+### Technical and safety behavior
+
+- Existing Windows `LyricsCanvas` renders a dedicated 1280×720, 16:9 off-screen frame. Its JPEG snapshots are published up to **10 fps while casting is active**, never when it is off. Chrome receives an MJPEG stream from a tiny loopback-only server.
+- Existing Foobar playhead drives lyrics, and v0.6.21's strict track invalidation still prevents old song lyrics from appearing on new music.
+- Casting does not open any listening socket on the LAN, expose MP3 files or credentials, use a cloud server, or require router port forwarding.
+- Tests verify loopback-only web delivery, an MJPEG stream frame, rejection of invalid images, and the independent per-TV timing offset.
+
+### Installation and acceptance tests
+
+1. Keep **Melisma Windows v0.6.23** as your fallback. Extract v0.6.24 into another folder. Keep **Foobar Bridge v0.4** installed; no bridge update needed.
+2. Start a Foobar song with known word-timed lyrics. Select **TV / Cast → Cast lyrics only to TV**. A browser window opens at `http://127.0.0.1:<random-port>/`. In Chrome open **⋮ → Cast, save, and share → Cast**, choose **Sources → Cast tab**, then select the Android TV.
+3. Leave that Chrome tab open. On your TV the karaoke lyrics, word animations and artwork background should update while the music continues playing independently from Foobar's configured audio output. The Windows app's controller and other windows are *not* being shared.
+4. If the TV text lags the music, choose **TV / Cast → Cast lyric timing → Show words 250 ms earlier** (repeat as needed). If lyrics lead the music, choose **Show words later**. This timing change affects TV only.
+5. Test song changes, intro dots, long instrumental gaps, different covers, a missing lyric source and a Foobar close/reopen. The cast must never keep scrolling old lyrics to the new song. Test CPU usage while streaming, and then use **Stop cast-tab sharing**.
+6. If the TV's tab-cast receiver, latency or browser makes the lyric display unsatisfactory, try the preserved HDMI Second screen mode rather than changing the stable main lyric renderer.
+
+This is a **party-readiness test build**, not yet verified on the user's actual Android TVs; Chrome/receiver compatibility and real playback latency must still be checked.
+
+---
+
 # Melisma Universal Windows v0.6.23 — actual on-screen crossfades
 
 ## User feedback
