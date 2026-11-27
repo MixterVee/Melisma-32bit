@@ -994,27 +994,29 @@ internal sealed class LyricsController : Form
     private void ShowCastGuide()
     {
         MessageBox.Show(this,
-            "CAST LYRICS ONLY · FOOBAR KEEPS PLAYING THE MUSIC\n\n" +
-            "1. In Melisma, select TV / Cast → Cast lyrics only to TV.\n" +
-            "2. The lyrics page opens in your default browser. " +
-                "Use Google Chrome for casting.\n" +
-            "3. In Chrome choose ⋮ → Cast, save, and share → Cast " +
-                "(menu wording may differ).\n" +
-            "4. Under Sources choose CAST TAB, not Cast screen.\n" +
-            "5. Select your Shield, Onn 4K Pro or Google TV, and leave " +
-                "that Chrome tab open. Music stays under Foobar2000's control.\n\n" +
-            "IMPORTANT: This cast carries LYRICS ONLY, NOT Foobar AUDIO. " +
-            "Choose the Windows audio output that feeds your speakers or " +
-            "surround system separately. Chrome casting can introduce " +
-            "some visual delay. If TV lyrics lag behind the music, use " +
-            "TV / Cast → Cast lyric timing → Show words earlier. This " +
-            "adjustment affects ONLY the TV, not PC lyrics or Foobar.\n\n" +
-            "The browser page is served only on this PC at 127.0.0.1. " +
-            "No MP3s, passwords, or files are shared with the TV, and " +
-            "no router port forwarding is necessary.\n\n" +
-            "For a cable-based fallback, use HDMI/extended display. " +
-            "The original v0.6.23 lyric/album and playback behavior remains.",
-            "Melisma · Cast lyrics (no music)",
+            "DIRECT TV CASTING — NO BROWSER\n\n" +
+            "1. Install Melisma Receiver on your Shield, Onn 4K Pro or " +
+                "Google TV once (separate APK).\n" +
+            "2. Open Melisma Receiver on the TV; leave it running. " +
+                "It shows its pairing code and IP address.\n" +
+            "3. Windows Melisma → TV / Cast → Connect directly to Android TV.\n" +
+            "4. Choose the detected TV and enter its six-digit code. " +
+                "If scanning misses it, type the TV IP shown on screen.\n" +
+            "5. The TV displays the karaoke lyrics and animations. " +
+                "Chrome is NOT involved.\n\n" +
+            "Foobar2000 continues playing music through the Windows " +
+            "audio device you select. NO AUDIO is sent with these lyrics. " +
+            "If TV lyrics are late, use TV / Cast → Cast lyric timing " +
+            "→ Show words earlier (250 ms per click).\n\n" +
+            "This is a direct local-network receiver, not Google's " +
+            "built-in Chromecast protocol. You do not need a Google login, " +
+            "a browser, an Internet service, or router port forwarding. " +
+            "Windows pushes frames outbound to TCP port 49831 on the TV. " +
+            "Both devices must be reachable on the home network.\n\n" +
+            "BACKUPS: Chrome tab casting is still available. For the " +
+            "lowest possible video latency, use the existing HDMI " +
+            "Second screen / Extend display mode.",
+            "Melisma · Browser-free TV casting",
             MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
