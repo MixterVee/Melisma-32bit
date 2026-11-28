@@ -22,6 +22,7 @@ edit("settings/SettingsStore.kt", [
     GLOW("Glow"),
     HIGHLIGHT_ONLY("Highlight only"),
     RANDOM("Random"),
+    SOAP_BUBBLES("Soap bubbles"),
 }
 
 enum class TextAnimationStyle(''', 1),
@@ -62,7 +63,7 @@ internal class WordEffectPicker(private val next: (Int) -> Int = { Random.nextIn
     private var key: String? = null
     private var selected = WordEffect.ENLARGEMENT
     private val pool = listOf(WordEffect.ENLARGEMENT, WordEffect.BOUNCING_BALL,
-        WordEffect.UNDERLINE, WordEffect.GLOW)
+        WordEffect.UNDERLINE, WordEffect.GLOW, WordEffect.SOAP_BUBBLES)
 
     fun resolve(setting: WordEffect, track: String): WordEffect {
         if (setting != WordEffect.RANDOM) return setting
@@ -76,6 +77,15 @@ internal class WordEffectPicker(private val next: (Int) -> Int = { Random.nextIn
 }
 
 internal val sharedWordEffectPicker = WordEffectPicker()
+
+internal const val BUBBLE_LIFETIME_MS = 1800
+internal const val MAX_VISIBLE_BUBBLES = 18
+
+internal fun bubbleAge(positionMs: Int, birthMs: Int): Float {
+    val elapsed = positionMs.toLong() - birthMs.toLong()
+    return if (elapsed < 0 || elapsed >= BUBBLE_LIFETIME_MS) -1f
+        else elapsed.toFloat() / BUBBLE_LIFETIME_MS
+}
 
 internal fun effectEase(p: Float): Float {
     val t = p.coerceIn(0f, 1f)
@@ -123,6 +133,13 @@ edit("ui/lyrics/LyricsRenderer.kt", [
                     )
                 }
             }''', 1),
+    ('''        drawFooter(canvas)
+    }''', '''        drawFooter(canvas)
+        if (wordEffect == WordEffect.SOAP_BUBBLES &&
+            layout.document.kind == LyricsKind.SYLLABLE && !userScrolling) {
+            drawSoapBubbles(canvas, positionMs)
+        }
+    }''', 1),
     ("    private fun drawActiveUnit(", '''    // Same timed gradient and original glyph geometry, no layout/transport changes.
     private fun drawEffectUnit(
         canvas: Canvas, unit: PlacedUnit, source: Paint, fontSize: Float,
@@ -130,8 +147,8 @@ edit("ui/lyrics/LyricsRenderer.kt", [
     ) {
         val state = LyricsAnim.stateOf(positionMs, unit.startMs, unit.endMs)
         if (state != LyricsAnim.State.ACTIVE) unit.sweepStartedAt = 0L
-        val progress = if (state == LyricsAnim.State.ACTIVE) sweepProgress(unit, positionMs)
-            else LyricsAnim.progressOf(positionMs, unit.startMs, unit.endMs)
+        // Alternative word fill and markers share the authoritative playhead.
+        val progress = LyricsAnim.progressOf(positionMs, unit.startMs, unit.endMs)
         val gradient = when (state) {
             LyricsAnim.State.ACTIVE -> GRADIENT_START + 120f * progress
             LyricsAnim.State.NOT_SUNG -> GRADIENT_START
@@ -142,15 +159,77 @@ edit("ui/lyrics/LyricsRenderer.kt", [
         paint.isSubpixelText = true
         paint.textSize = source.textSize
         paint.typeface = source.typeface
-        paint.shader = fillShader(unit, gradient, opacity)
         if (wordEffect == WordEffect.GLOW && state == LyricsAnim.State.ACTIVE) {
-            val strength = 0.32f + 0.68f * effectLift(progress)
-            paint.setShadowLayer(fontSize * (0.09f + 0.14f * strength), 0f, 0f,
-                whiteWithAlpha(opacity * strength * 0.85f))
+            // Hardware-independent translucent glyph outlines beneath the fill.
+            val strength = 0.55f + 0.45f * effectLift(progress)
+            paint.style = Paint.Style.STROKE
+            paint.strokeJoin = Paint.Join.ROUND
+            paint.strokeWidth = (fontSize * 0.19f).coerceAtLeast(2f)
+            paint.color = Color.argb((opacity * strength * 70f).toInt().coerceIn(0, 255), 100, 215, 255)
+            canvas.drawText(unit.text, unit.x, unit.baseline, paint)
+            paint.strokeWidth = (fontSize * 0.10f).coerceAtLeast(1.5f)
+            paint.color = Color.argb((opacity * strength * 160f).toInt().coerceIn(0, 255), 185, 240, 255)
+            canvas.drawText(unit.text, unit.x, unit.baseline, paint)
+            paint.style = Paint.Style.FILL
         }
+        paint.color = Color.WHITE
+        paint.shader = fillShader(unit, gradient, opacity)
         canvas.drawText(unit.text, unit.x, unit.baseline, paint)
         paint.shader = null
         paint.clearShadowLayer()
+    }
+
+    // Stateless, bounded overlay. No independent animation clock or particle queue.
+    private fun drawSoapBubbles(canvas: Canvas, positionMs: Int) {
+        if (activeIndex < 0) return
+        var budget = MAX_VISIBLE_BUBBLES
+        val first = (activeIndex - 6).coerceAtLeast(0)
+        val last = (activeIndex + 2).coerceAtMost(layout.lines.lastIndex)
+        for (lineIndex in last downTo first) {
+            val line = layout.lines[lineIndex]
+            if (line.isInterlude || line.startMs > positionMs ||
+                positionMs.toLong() - line.endMs.toLong() >= BUBBLE_LIFETIME_MS) continue
+            val font = layout.metrics.fontSizeFor(line.role)
+            val top = line.top - scrollY
+            for (unitIndex in line.units.indices.reversed()) {
+                val unit = line.units[unitIndex]
+                if (unit.text.isBlank() || unit.endMs <= unit.startMs) continue
+                val duration = unit.endMs - unit.startMs
+                val count = if (duration >= 450) 2 else 1
+                for (part in count - 1 downTo 0) {
+                    val born = unit.startMs + if (part == 0) 0 else duration / 2
+                    val age = bubbleAge(positionMs, born)
+                    if (age < 0f) continue
+                    val seed = (lineIndex * 31 + unitIndex * 17 + part * 13) and 255
+                    val direction = if (seed % 2 == 0) -1f else 1f
+                    val wobble = kotlin.math.sin((age * 5f + seed * 0.1f).toDouble()).toFloat()
+                    val radius = (font * (0.11f + (seed % 5) * 0.014f) *
+                        (0.7f + 0.3f * effectEase(age * 5f))).coerceAtLeast(2f)
+                    val x = contentLeftPx + unit.centerX +
+                        direction * font * age * 0.45f + wobble * font * age * 0.15f
+                    val y = top + unit.baseline - font * (0.93f + age * 1.65f)
+                    if (y + radius < 0f || y - radius > viewportHeight) continue
+                    val alpha = (1f - age) * (1f - age) *
+                        (if (line.role == LineRole.BACKGROUND) 0.65f else 1f)
+                    paint.reset()
+                    paint.isAntiAlias = true
+                    paint.color = Color.argb((alpha * 24f).toInt(), 165, 220, 255)
+                    canvas.drawCircle(x, y, radius, paint)
+                    paint.style = Paint.Style.STROKE
+                    paint.strokeWidth = (radius * 0.12f).coerceAtLeast(0.9f)
+                    paint.color = Color.argb((alpha * 190f).toInt(), 195, 238, 255)
+                    canvas.drawCircle(x, y, radius, paint)
+                    paint.color = Color.argb((alpha * 160f).toInt(), 255, 174, 232)
+                    canvas.drawArc(x - radius, y - radius, x + radius, y + radius,
+                        15f, 110f, false, paint)
+                    paint.style = Paint.Style.FILL
+                    paint.color = Color.argb((alpha * 230f).toInt(), 255, 255, 255)
+                    canvas.drawCircle(x - radius * 0.35f, y - radius * 0.35f, radius * 0.18f, paint)
+                    budget--
+                    if (budget == 0) return
+                }
+            }
+        }
     }
 
     private fun drawWordMarker(
@@ -206,6 +285,19 @@ class WordEffectsTest {
         assertEquals(WordEffect.GLOW, picker.resolve(WordEffect.GLOW, "two"))
         assertEquals(b, picker.resolve(WordEffect.RANDOM, "two"))
         assertNotEquals(WordEffect.HIGHLIGHT_ONLY, b)
+    }
+    @Test fun bubbleTrailUsesAbsolutePositionAndExpires() {
+        assertEquals(-1f, bubbleAge(999, 1000), 0.001f)
+        assertEquals(0f, bubbleAge(1000, 1000), 0.001f)
+        assertEquals(0.5f, bubbleAge(1900, 1000), 0.001f)
+        assertEquals(-1f, bubbleAge(2800, 1000), 0.001f)
+        assertEquals(0.5f, bubbleAge(1900, 1000), 0.001f)
+        assertEquals(18, MAX_VISIBLE_BUBBLES)
+    }
+    @Test fun randomIncludesBubbles() {
+        val picker = WordEffectPicker { it - 1 }
+        assertEquals(WordEffect.SOAP_BUBBLES, picker.resolve(WordEffect.RANDOM, "one"))
+        assertNotEquals(WordEffect.SOAP_BUBBLES, picker.resolve(WordEffect.RANDOM, "two"))
     }
     @Test fun motionClamped() {
         assertEquals(0f, effectEase(-1f), 0.001f)

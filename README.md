@@ -1,3 +1,9 @@
+# Melisma Universal Android v2.8.15 — Soap bubbles and word-effect fixes
+
+Settings → Lyrics display → Animation style → Soap bubbles. Translucent outlined bubbles rise from timed syllables, drift and fade over 1.8 seconds, maximum 18 per frame. Random includes bubbles. Alternative word fill and markers use the same reported playhead; Glow uses explicit translucent outlines rather than relying on shadow+shader support. Candidate fixes require affected-song and device verification. Existing centered Lyrics layout, original enlargement, audio and lyric sources unchanged.
+
+---
+
 # Melisma Universal v2.8.14 — centered Lyrics mode
 
 Full Lyrics mode now centers each wrapped lyric row, its timed syllables, translations, romanization, interlude dots and credits on the full lyric viewport. All animation styles including Random use the same centered word geometry. Cinema, compact and popup layouts retain their prior alignment. No changes to playback, lyric lookup or timing. Test visually on phones and TVs, including wrapped lyrics, enlargement, ball markers and three-dot gaps.
