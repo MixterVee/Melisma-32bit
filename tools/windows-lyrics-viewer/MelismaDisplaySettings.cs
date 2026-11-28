@@ -51,6 +51,8 @@ internal sealed class MelismaDisplaySettings
     // Preserve old preference for migrating v0.6.18 display-settings.json.
     // New builds use AnimationStyle as the authoritative choice.
     public bool GrowActiveWord { get; set; } = true;
+    private readonly RandomLyricAnimation _randomAnimation = new();
+    internal MelismaLyricAnimation ResolveAnimation(ulong epoch) => _randomAnimation.Resolve(AnimationStyle, epoch);
     public MelismaLyricAnimation AnimationStyle { get; set; } =
         MelismaLyricAnimation.AndroidEnlargement;
     public bool MinimalMode { get; set; } = false;
@@ -213,7 +215,7 @@ internal sealed class MelismaDisplaySettingsForm : Form
             value => settings.SmoothWordFill = value);
         Choice(lyrics, "Animation style",
             ["Android-style enlargement", "Bouncing ball", "Underline",
-             "Glow", "Highlight only (no motion)"],
+             "Glow", "Highlight only (no motion)", "Random (each song)"],
             (int)settings.AnimationStyle, i =>
             {
                 settings.AnimationStyle = (MelismaLyricAnimation)i;
@@ -228,7 +230,7 @@ internal sealed class MelismaDisplaySettingsForm : Form
             "underline and glow follow genuine TTML/YRC word timing or " +
             "enhanced-LRC onsets; they never invent timestamps. " +
             "Line-only lyrics retain normal line highlighting. " +
-            "Highlight only disables animated word effects.");
+            "Highlight only disables animated word effects. Random picks a moving effect per track, shared by all displays.");
 
         var bottom = new Panel { Dock = DockStyle.Bottom, Height = 51,
             BackColor = Color.FromArgb(17, 23, 39) };

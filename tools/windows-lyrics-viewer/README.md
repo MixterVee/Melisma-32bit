@@ -1,3 +1,9 @@
+# Melisma Windows v0.6.30 — Random lyric animation
+
+Display → Lyrics display → Animation style → Random (each song). Choose one of the four moving styles per playback epoch, avoid immediate repeats, and share the choice across preview, second screen and casting. Explicit Highlight only remains available. Existing timing, audio, TV receiver v0.2.0 and saved animation values remain unchanged.
+
+---
+
 # Melisma Windows v0.6.29 / TV Receiver v0.2.0 — optional LAN audio (test)
 
 Choose TV / Cast → Connect directly to Android TV (lyrics only) to keep the existing protocol, or Connect to Android TV (lyrics + audio) — test. Install the matching Receiver v0.2.0 for audio. The receiver still accepts v0.1.0 lyrics-only senders. Foobar Bridge v0.4 and Stem Separator do not need changes. The experimental audio stream captures the **default Windows render endpoint** via WASAPI loopback after player DSP, not an isolated Foobar process. Other sounds on that endpoint can be transmitted; use shared mode (not exclusive WASAPI/ASIO), silence notifications/other apps, and use stereo/mono at 8–96 kHz. This does not reroute or mute the PC; reduce physical PC speaker volume if needed. Stereo PCM16 travels over a second TCP connection to TV port 49832, authenticated by the existing pairing code and tied to the active lyric sender's IP. Trusted LAN only; no TLS or port forwarding. Audio congestion stops audio rather than accumulating an unbounded application queue; video continues. Use TV-only lyric timing to compensate for actual audio/visual latency. The first version is not clock-locked A/V; network/audio output latency and drift must be tested. No microphone support. Test audio from Foobar Original and Blend, pause/resume, seek, song change, TV close, audio failure, disconnect, original receiver compatibility and synchronization on wired/Wi-Fi before party use.

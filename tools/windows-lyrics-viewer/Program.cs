@@ -113,7 +113,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.29";
+        Text = "Melisma Universal · Windows v0.6.30";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -262,7 +262,7 @@ internal sealed class LyricsController : Form
                 current.ActiveIndex < current.Lines.Count &&
                 current.Lines[current.ActiveIndex].Words is { Count: > 0 } &&
                 (LyricAnimationMotion.RequiresWordGeometry(
-                    _display.AnimationStyle) || _display.SmoothWordFill);
+                    _display.ResolveAnimation(current.TrackEpoch)) || _display.SmoothWordFill);
             int interval = timedWord ? 25 :
                 _playerState == 1 && current.Lines.Count > 0 ? 65 :
                 _playerState == 1 ? 75 : 120;
@@ -2304,7 +2304,7 @@ internal sealed class LyricsCanvas : Control
             // Do not delay the beginning of word growth until 70% of the
             // line scroll animation: that gate suddenly switched from the
             // base font to the enlarged overlay mid-word (a visible pop).
-            var style = _display.AnimationStyle;
+            var style = _display.ResolveAnimation(frame.TrackEpoch);
             AnimatedWord? animated = !inGap && index == active &&
                 LyricAnimationMotion.RequiresWordGeometry(style)
                     ? LocateAnimatedWord(layout, line, frame.LyricPositionMs)
