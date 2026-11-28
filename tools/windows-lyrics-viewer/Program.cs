@@ -44,6 +44,7 @@ internal sealed class LyricsController : Form
     private readonly MelismaDisplaySettings _display = MelismaDisplaySettings.Load();
     private readonly PlaybackIdleBackground _idleBackground = new();
     private MelismaDisplaySettingsForm? _settingsWindow;
+    private KaraokeControlPanel? _karaokeWindow;
     private readonly System.Windows.Forms.Timer _screenTimer = new() { Interval = 25 };
     private readonly System.Windows.Forms.Timer _mediaTimer = new() { Interval = 1200 };
     private readonly Label _trackLabel = Label(18, Color.White, true);
@@ -111,7 +112,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.26";
+        Text = "Melisma Universal · Windows v0.6.27";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -209,6 +210,9 @@ internal sealed class LyricsController : Form
             Dock = DockStyle.Fill, WrapContents = false, AutoScroll = true,
             FlowDirection = FlowDirection.LeftToRight
         };
+        var karaokeButton = Button("Karaoke 🎤", 130);
+        karaokeButton.Click += (_, _) => OpenKaraokeStudio();
+        extraControls.Controls.Add(karaokeButton);
         var settingsButton = Button("Display…", 119);
         settingsButton.Click += OpenDisplaySettings;
         extraControls.Controls.Add(settingsButton);
@@ -299,6 +303,7 @@ internal sealed class LyricsController : Form
             _searchCancellation?.Dispose();
             _projection?.Close();
             _settingsWindow?.Close();
+            _karaokeWindow?.Close();
             _artwork.Dispose();
         };
     }
@@ -1196,6 +1201,19 @@ internal sealed class LyricsController : Form
         _castServer?.Dispose();
         _castServer = null;
         ReleaseCastingCanvasIfUnused();
+    }
+
+    private void OpenKaraokeStudio()
+    {
+        if (_karaokeWindow is { IsDisposed: false })
+        {
+            _karaokeWindow.Activate();
+            return;
+        }
+        _karaokeWindow = new KaraokeControlPanel(
+            () => (_song, _artist, _playerState == 1));
+        _karaokeWindow.FormClosed += (_, _) => _karaokeWindow = null;
+        _karaokeWindow.Show(this);
     }
 
     private void OpenLrc(object? sender, EventArgs e)
