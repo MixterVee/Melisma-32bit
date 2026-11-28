@@ -11,7 +11,8 @@ internal enum MelismaLyricAnimation
     Underline,
     Glow,
     HighlightOnly,
-    Random
+    Random,
+    SoapBubbles
 }
 
 internal sealed class RandomLyricAnimation
@@ -27,10 +28,11 @@ internal sealed class RandomLyricAnimation
         if (setting != MelismaLyricAnimation.Random) return setting;
         if (_epoch != epoch)
         {
-            // Random uses the four moving effects; avoid repeating the previous song.
-            int next = _next(_epoch.HasValue ? 3 : 4);
-            if (_epoch.HasValue && next >= (int)_selected) next++;
-            _selected = (MelismaLyricAnimation)next;
+            MelismaLyricAnimation[] pool = [MelismaLyricAnimation.AndroidEnlargement,
+                MelismaLyricAnimation.BouncingBall, MelismaLyricAnimation.Underline,
+                MelismaLyricAnimation.Glow, MelismaLyricAnimation.SoapBubbles];
+            if (_epoch.HasValue) pool = pool.Where(x => x != _selected).ToArray();
+            _selected = pool[_next(pool.Length)];
             _epoch = epoch;
         }
         return _selected;
@@ -68,8 +70,15 @@ internal static class LyricAnimationMotion
     internal static float Glow(float progress) =>
         0.32f + 0.68f * BallLift(progress);
 
+    internal const int BubbleLifetimeMs = 1800;
+    internal const int MaxVisibleBubbles = 18;
+    internal static float BubbleAge(long position, long birth)
+    {
+        long elapsed = position - birth;
+        return elapsed < 0 || elapsed >= BubbleLifetimeMs ? -1f : elapsed / (float)BubbleLifetimeMs;
+    }
     internal static bool RequiresWordGeometry(MelismaLyricAnimation style) =>
-        style != MelismaLyricAnimation.HighlightOnly;
+        style != MelismaLyricAnimation.HighlightOnly && style != MelismaLyricAnimation.SoapBubbles;
 
     internal static bool UsesEnlargement(MelismaLyricAnimation style) =>
         style == MelismaLyricAnimation.AndroidEnlargement;

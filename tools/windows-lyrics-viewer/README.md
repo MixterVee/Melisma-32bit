@@ -1,3 +1,9 @@
+# Windows v0.6.31 — smooth interlude and Soap bubbles parity
+
+Same 2-second approach to next lyric as Android v2.8.16, center by 120ms before vocals. Center dot row in Lyrics mode. Add bounded playhead-derived Soap bubbles and include in Random. Word fill no longer waits for line scroll. Retain audio casting and all existing effects. Real playback/visual validation required.
+
+---
+
 # Melisma Windows v0.6.30 — Random lyric animation
 
 Display → Lyrics display → Animation style → Random (each song). Choose one of the four moving styles per playback epoch, avoid immediate repeats, and share the choice across preview, second screen and casting. Explicit Highlight only remains available. Existing timing, audio, TV receiver v0.2.0 and saved animation values remain unchanged.

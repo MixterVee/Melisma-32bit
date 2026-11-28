@@ -29,32 +29,22 @@ internal static class AndroidInterludeRow
         return x * x * (3f - 2f * x);
     }
 
-    // The third dot is a sung-entry cue, so do NOT start scrolling toward
-    // the next lyric during its final 650ms landing window. v0.6.17 began
-    // the upward scroll 780ms BEFORE vocal entry, moving the landing dot
-    // out of view. Hold the interlude row until the lyric actually starts.
+    // Gradually center the incoming lyric while the dots are still visible.
+    // Identical two-stage curve on Android; finish 120ms before singing.
     internal const int ExitScrollDurationMs = 420;
-
     internal static float Focus(InterludeSpan gap, long positionMs,
         float dotCenter, float nextCenter, float? lastVocalCenter)
     {
-        // The previous vocal glides into the dots as the gap begins.
-        // Once the dots reach their visual focus, remain there even while
-        // the third dot comes down; the upcoming text remains readable.
-        if (!lastVocalCenter.HasValue) return dotCenter;
-        return lastVocalCenter.Value +
-            (dotCenter - lastVocalCenter.Value) *
-            Ease((positionMs - gap.StartMs) / 480f);
+        long approach = Math.Min(gap.EndMs - 120, Math.Max(gap.StartMs + 480, gap.EndMs - 2000));
+        long finish = Math.Max(approach + 1, gap.EndMs - 120);
+        float previous = lastVocalCenter ?? dotCenter;
+        return positionMs < approach
+            ? previous + (dotCenter - previous) * Ease((positionMs - gap.StartMs) / 480f)
+            : dotCenter + (nextCenter - dotCenter) * Ease((positionMs - approach) / (float)(finish - approach));
     }
-
-    // Only AFTER the final dot has completely settled and disappeared at
-    // the original next-lyric timestamp does the viewport move toward the
-    // next line. The lyric itself stays synchronized and highlights at its
-    // original timestamp while this purely visual scroll completes.
     internal static float ExitFocus(InterludeSpan gap, long positionMs,
         float dotCenter, float nextCenter) =>
-        dotCenter + (nextCenter - dotCenter) *
-            Ease((positionMs - gap.EndMs) / (float)ExitScrollDurationMs);
+        Focus(gap, positionMs, dotCenter, nextCenter, null);
 
     internal static (long StartMs, long EndMs) DotBounds(InterludeSpan gap, int index)
     {
