@@ -1,3 +1,37 @@
+# Melisma Windows v0.6.27 — Karaoke Studio + real Foobar Stem Separator control (test)
+
+This release adds an actual local Foobar2000 Stem Separator control panel, **not a mock slider**. It builds on the user's accepted Windows v0.6.26 lyric/TV casting code and does not modify live lyrics, provider choice, offsets, album fades, animation styles, or receiver protocols.
+
+## Required two-piece test setup
+
+1. Keep the proven Windows Melisma v0.6.26 folder as rollback. Extract **Melisma Universal Windows v0.6.27 Karaoke** into a separate folder.
+2. Upgrade **Foobar2000 Stem Separator to the separate 2.8.3-karaoke-test component** from the `MixterVee/foo_stem_separator` test artifact (not the stable v2.8.2 release). The ONNX/Spleeter runtime and models are the same official stable 2.8.2 builds; only the foobar plugin DLL has a new local control bridge. Close/restart Foobar2000 when installing; **do not change Foobar Bridge v0.4**.
+3. Verify **Preferences → Playback → DSP Manager → Stem Separator (ONNX)** is in **Active DSPs**. Merely installing it is not sufficient to affect audio.
+4. Play a song. In Melisma click **Karaoke 🎤** on the main toolbar's second row to open **Karaoke Studio**. The pane should show the current track and the **actual** Stem Separator mode, vocal level, instrumental level, and whether the DSP is processing.
+5. Press **Instrumental** to remove the original vocal stem from the backing track, **Original** to hear the unmodified song, **Vocals only** to isolate the singer, or **Custom blend** to hear both stems. Use **Original singer** and **Backing music** sliders (0–100%). Moving either slider activates Blend. A change is only reported after Foobar acknowledges it; if the bridge is missing or its DSP is inactive while playing, controls are disabled and the panel tells you why.
+
+## Safety and known constraints
+
+- No song files, MP3 tags, lyrics timestamps, Foobar playhead, persistent stem caches, sample-rate handling or audio output routes are changed by the controls. Foobar Stem Separator remains solely responsible for live audio replacement.
+- Foobar's usual stem-processing cache/startup delay remains. The panel won't promise instantaneous separated audio when the DSP engine is still preparing a new song. The original **v2.8.2** component remains the safe fallback.
+- The component's local, versioned named shared-memory bridge `Local\\MelismaStemKaraoke_v1` is accessible only on the same Windows session; it exposes no HTTP/UDP/TCP server, no audio files, no microphone or network passwords.
+- This is **not** a microphone mixer. Karaoke guests' microphones must be connected to the appropriate sound-system input/mixer separately. The existing TV Receiver v0.1.0 (lyrics-only) and Foobar Bridge v0.4 are unchanged.
+- When Foobar closes or its bridge becomes stale, Melisma disables remote stem controls rather than presenting old status as current.
+- Existing Foobar Stem Separator context-menu controls remain active and reflected in the panel; the bridge does not silently override them.
+
+## Test plan
+
+1. First play one familiar song and compare Original → Instrumental → Original. Verify the actual audible vocals vanish/return, not just the button highlight.
+2. Enter Blend mode and move vocals to 25%, 50%, 75% then 100%, keeping instrumental 100%. Check that the singer level changes without stopping Foobar or restarting lyric animations.
+3. Switch tracks, seek, pause/resume and start a new song while staying in Instrumental/Blend. Confirm caching and synchronization remain steady; do not assume original stems are immediately ready at song onset.
+4. With karaoke lyrics playing on the Shield/Onn/TCL, confirm all controls still work and the TV text/timing is unchanged.
+5. Remove Stem Separator from **Active DSPs** during playback: the panel must tell you DSP isn't active and must not falsely say your audio changed. Re-enable it and play again.
+6. Close Foobar2000; the panel should go unavailable. Restart and confirm session state is truly new; old pending changes must not replay.
+
+**Build and install notes:** This is a deliberately paired test of Windows v0.6.27 + Stem Separator v2.8.3. Until your own Foobar/TV test confirms the audio behavior, keep the older apps/components for rollback.
+
+---
+
 # Melisma Universal Windows v0.6.26 — readable TV picker & reliable discovery
 
 **User screenshot feedback:** The v0.6.25 Android TV connection dialog was too small for high-DPI Windows: explanatory text ended mid-sentence, the TV IP and pairing code input labels were truncated, the full Windows discovery error was cut off, and all three bottom buttons were partly hidden.
