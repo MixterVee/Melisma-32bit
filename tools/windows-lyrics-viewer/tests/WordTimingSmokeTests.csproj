@@ -38,6 +38,8 @@
     <Compile Include="../DirectTvSender.cs" Link="DirectTvSender.cs" />
     <Compile Include="DirectTvTests.cs" />
     <Compile Include="../CastPlaybackTiming.cs" Link="CastPlaybackTiming.cs" />
+    <Compile Include="../StemKaraokeBridge.cs" Link="StemKaraokeBridge.cs" />
+    <Compile Include="KaraokeStemBridgeTests.cs" />
     <Compile Include="CastTabTests.cs" />
     <Compile Include="../FluidLivingRenderer.cs" Link="FluidLivingRenderer.cs" />
     <Compile Include="VisualFadeTests.cs" />
