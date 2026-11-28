@@ -39,11 +39,13 @@ on:
       - 'scripts/patch_tv_v28122.py'
       - 'scripts/patch_tv_v28123.py'
       - 'scripts/patch_tv_v2813.py'
+      - 'scripts/patch_tv_v2814.py'
       - 'scripts/patch_abis.py'
       - '.github/workflows/test-32bit.yml'
   pull_request:
     paths:
       - 'scripts/patch_tv_v2813.py'
+      - 'scripts/patch_tv_v2814.py'
       - '.github/workflows/test-32bit.yml'
   workflow_dispatch:
     inputs:
@@ -196,6 +198,9 @@ jobs:
       - name: Port Windows word animations to Android
         run: python3 automation/scripts/patch_tv_v2813.py melisma
 
+      - name: Center full-screen Lyrics mode rows
+        run: python3 automation/scripts/patch_tv_v2814.py melisma
+
       - name: Verify Cloud Sync first focus target and TV controls
         run: |
           python3 - <<'PY'
@@ -239,7 +244,7 @@ jobs:
           # Robolectric downloads its runtime Android test jar from Maven at
           # test time; transient HTTP 429 errors are not a product regression.
           for attempt in 1 2 3; do
-            if ./gradlew :app:testDebugUnitTest --tests com.melisma.app.settings.SongOffsetSettingsTest --tests com.melisma.app.media.RecordingCorrectionKeyTest --tests com.melisma.app.ui.lyrics.WordEffectsTest --no-daemon; then
+            if ./gradlew :app:testDebugUnitTest --tests com.melisma.app.settings.SongOffsetSettingsTest --tests com.melisma.app.media.RecordingCorrectionKeyTest --tests com.melisma.app.ui.lyrics.WordEffectsTest --tests com.melisma.app.ui.lyrics.CenteredLyricRowsTest --no-daemon; then
               exit 0
             fi
             echo "Robolectric test failed (attempt $attempt/3); retrying..."
@@ -266,11 +271,11 @@ jobs:
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify "$APK"
 
       - name: Prepare test APK
-        run: cp melisma/app/build/outputs/apk/debug/app-debug.apk melisma-universal-v2.8.13-TEST.apk
+        run: cp melisma/app/build/outputs/apk/debug/app-debug.apk melisma-universal-v2.8.14-TEST.apk
 
       - name: Upload test APK
         uses: actions/upload-artifact@v4
         with:
-          name: melisma-universal-v2.8.13-test-${{ steps.version.outputs.tag }}
-          path: melisma-universal-v2.8.13-TEST.apk
+          name: melisma-universal-v2.8.14-test-${{ steps.version.outputs.tag }}
+          path: melisma-universal-v2.8.14-TEST.apk
           retention-days: 30

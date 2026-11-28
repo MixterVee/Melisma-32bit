@@ -1,3 +1,9 @@
+# Melisma Universal v2.8.14 — centered Lyrics mode
+
+Full Lyrics mode now centers each wrapped lyric row, its timed syllables, translations, romanization, interlude dots and credits on the full lyric viewport. All animation styles including Random use the same centered word geometry. Cinema, compact and popup layouts retain their prior alignment. No changes to playback, lyric lookup or timing. Test visually on phones and TVs, including wrapped lyrics, enlargement, ball markers and three-dot gaps.
+
+---
+
 # Melisma Universal v2.8.13 — visual lyric animation test
 
 Settings → Lyrics display → Animation style adds Enlargement (existing default), Bouncing ball, Underline, Glow, Highlight only and Random. Random picks one moving effect per recording and excludes immediate repeats. Existing Calculate/Animate timing setting remains separate. Both phone and TV use the native lyric renderer; alternative effects follow timed syllables and preserve line-only behavior. Test remote focus, wrapping, timing, long notes, phone layout, and both ARM architectures. Keep prior builds; not yet visually verified.
