@@ -152,8 +152,10 @@ internal sealed class KaraokeControlPanel : Form
         row.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 85));
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 15));
-        row.Controls.Add(TextLabel(11f, Color.FromArgb(218, 229, 244), true)
-            { Text = caption }, 0, 0);
+        var captionLabel = TextLabel(11f,
+            Color.FromArgb(218, 229, 244), true);
+        captionLabel.Text = caption;
+        row.Controls.Add(captionLabel, 0, 0);
         percentage.TextAlign = ContentAlignment.MiddleRight;
         row.Controls.Add(percentage, 1, 0);
         row.Controls.Add(slider, 0, 1);
