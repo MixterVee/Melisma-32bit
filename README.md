@@ -1,3 +1,9 @@
+# Melisma Android v2.8.16 — smooth interlude centering
+
+Gradually scroll from the dot row to the next vocal during the last two seconds of the instrumental gap, finishing 120 ms before the vocal timestamp. Preserve the three-dot cue, including final landing and fade. All seven effects remain available. Same motion curve as Windows. Test real verse transitions and device frame pacing; no lyric timing or audio modifications.
+
+---
+
 # Melisma Universal Android v2.8.15 — Soap bubbles and word-effect fixes
 
 Settings → Lyrics display → Animation style → Soap bubbles. Translucent outlined bubbles rise from timed syllables, drift and fade over 1.8 seconds, maximum 18 per frame. Random includes bubbles. Alternative word fill and markers use the same reported playhead; Glow uses explicit translucent outlines rather than relying on shadow+shader support. Candidate fixes require affected-song and device verification. Existing centered Lyrics layout, original enlargement, audio and lyric sources unchanged.
