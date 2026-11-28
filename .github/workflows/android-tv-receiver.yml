@@ -46,12 +46,12 @@ jobs:
         run: |
           test -s tools/android-tv-receiver/app/build/outputs/apk/debug/app-debug.apk
           mkdir -p tv-receiver-kit
-          cp tools/android-tv-receiver/app/build/outputs/apk/debug/app-debug.apk tv-receiver-kit/Melisma-TV-Receiver-v0.1.0.apk
+          cp tools/android-tv-receiver/app/build/outputs/apk/debug/app-debug.apk tv-receiver-kit/Melisma-TV-Receiver-v0.2.0.apk
           cp tools/android-tv-receiver/README.md tv-receiver-kit/README.txt
 
       - name: Upload Android TV APK
         uses: actions/upload-artifact@v4
         with:
-          name: Melisma-TV-Receiver-v0.1.0-Android-APK
+          name: Melisma-TV-Receiver-v0.2.0-Android-APK
           path: tv-receiver-kit/*
           retention-days: 30

@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AssemblyName>MelismaLyricsViewer</AssemblyName>
-    <Version>0.6.28</Version>
+    <Version>0.6.29</Version>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <ApplicationTitle>Melisma Universal Lyrics Preview</ApplicationTitle>
   </PropertyGroup>
@@ -14,5 +14,8 @@
        Exclude it from this WinForms application's default wildcard glob. -->
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="NAudio" Version="2.2.1" />
   </ItemGroup>
 </Project>
