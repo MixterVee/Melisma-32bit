@@ -1,3 +1,9 @@
+# Melisma Universal Windows v0.6.28 — lyrics-only karaoke
+
+The experimental v0.6.27 cross-process stem audio controls are intentionally excluded. Use Foobar2000's native Stem Separator mixer for singer level. This build is based on the accepted v0.6.26 TV discovery, lyrics and casting code, with no audio-control bridge. Foobar Bridge v0.4 and Android TV Receiver v0.1.0 remain unchanged.
+
+---
+
 # Melisma Universal Windows v0.6.26 — readable TV picker & reliable discovery
 
 **User screenshot feedback:** The v0.6.25 Android TV connection dialog was too small for high-DPI Windows: explanatory text ended mid-sentence, the TV IP and pairing code input labels were truncated, the full Windows discovery error was cut off, and all three bottom buttons were partly hidden.
