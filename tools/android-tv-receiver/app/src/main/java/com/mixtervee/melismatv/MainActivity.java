@@ -1,6 +1,9 @@
 package com.mixtervee.melismatv;
 
 import android.app.Activity;
+import android.media.AudioAttributes;
+import android.media.AudioFormat;
+import android.media.AudioTrack;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
@@ -37,11 +40,12 @@ import java.util.concurrent.Executors;
 
 /**
  * Full-screen, browser-free karaoke receiver for Shield, Onn and Google TV.
- * It consumes only JPEG frames, never plays audio, requests no microphone,
+ * It consumes JPEG frames and optional paired PCM playback, requests no microphone,
  * and doesn't expose a WebView or arbitrary URLs.
  */
 public final class MainActivity extends Activity {
     private static final int STREAM_PORT = 49831;
+    private static final int AUDIO_PORT = 49832;
     private static final int DISCOVERY_PORT = 47916;
     private static final int MAX_JPEG_BYTES = 2 * 1024 * 1024;
     private static final String PROBE = "MELISMA_DISCOVER_V1";
@@ -53,7 +57,11 @@ public final class MainActivity extends Activity {
     private ExecutorService workers;
     private ServerSocket tcpServer;
     private DatagramSocket udpServer;
-    private Socket currentClient;
+    private volatile Socket currentClient;
+    private volatile Socket pairedClient;
+    private volatile ServerSocket audioServer;
+    private volatile Socket audioClient;
+    private volatile AudioTrack audioTrack;
     private WifiManager.MulticastLock multicastLock;
     private volatile boolean active;
     private Bitmap previousBitmap;
@@ -113,7 +121,7 @@ public final class MainActivity extends Activity {
         TextView help = new TextView(this);
         help.setText("\nOn your Windows PC:\n" +
             "Melisma → TV / Cast → Connect directly to Android TV\n\n" +
-            "No Chrome or TV browser needed. Music stays with Foobar2000.\n" +
+            "No Chrome or TV browser needed. Lyrics-only or optional audio cast.\n" +
             "Press OK on the TV remote to show/hide this information.");
         help.setTextSize(16f);
         help.setTextColor(Color.rgb(194, 211, 227));
@@ -134,7 +142,7 @@ public final class MainActivity extends Activity {
     protected void onStart() {
         super.onStart();
         active = true;
-        workers = Executors.newFixedThreadPool(2);
+        workers = Executors.newFixedThreadPool(3);
         try {
             WifiManager wifi = (WifiManager)getApplicationContext()
                 .getSystemService(Context.WIFI_SERVICE);
@@ -146,6 +154,7 @@ public final class MainActivity extends Activity {
         } catch (RuntimeException ignored) { /* Ethernet may not have Wi-Fi. */ }
         workers.execute(this::acceptTcp);
         workers.execute(this::respondToDiscovery);
+        workers.execute(this::acceptAudio);
     }
 
     @Override
@@ -174,6 +183,9 @@ public final class MainActivity extends Activity {
     }
 
     private void closeNetwork() {
+        pairedClient = null;
+        closeAudioClient();
+        try { if (audioServer != null) audioServer.close(); } catch (IOException ignored) {}
         try { if (currentClient != null) currentClient.close(); }
         catch (IOException ignored) {}
         try { if (tcpServer != null) tcpServer.close(); }
@@ -229,6 +241,7 @@ public final class MainActivity extends Activity {
                     "   Code: " + code);
                 return;
             }
+            pairedClient = client;
             setStatus("Connected to Melisma Windows");
             while (active && !client.isClosed()) {
                 int size = input.readInt(); // 4-byte network-order length
@@ -255,6 +268,10 @@ public final class MainActivity extends Activity {
                 }
             }
         } finally {
+            if (pairedClient == client) {
+                pairedClient = null;
+                closeAudioClient();
+            }
             if (active) {
                 setStatus("Disconnected  •  Ready for Melisma Windows\n" +
                     "IP: " + findIpv4() + "   Code: " + code);
@@ -263,6 +280,96 @@ public final class MainActivity extends Activity {
                     instructionPanel.setVisibility(View.VISIBLE);
                     showInstructions = true;
                 });
+            }
+        }
+    }
+
+    private void closeAudioClient() {
+        Socket s = audioClient;
+        if (s != null) try { s.close(); } catch (IOException ignored) {}
+        // Unblock a blocking AudioTrack.write on receiver shutdown.
+        AudioTrack t = audioTrack;
+        if (t != null) try { t.pause(); t.flush(); } catch (RuntimeException ignored) {}
+    }
+
+    private void acceptAudio() {
+        try (ServerSocket server = new ServerSocket(AUDIO_PORT)) {
+            audioServer = server;
+            while (active) {
+                try (Socket client = server.accept()) {
+                    audioClient = client;
+                    receiveAudio(client);
+                } catch (IOException | RuntimeException e) {
+                    // Audio failure must not stop the existing lyric stream.
+                    android.util.Log.w("MelismaAudio", "Audio ended", e);
+                } finally {
+                    audioClient = null;
+                }
+            }
+        } catch (IOException e) {
+            if (active) android.util.Log.w("MelismaAudio", "Audio port unavailable", e);
+        } finally { audioServer = null; }
+    }
+
+    private void receiveAudio(Socket client) throws IOException {
+        client.setTcpNoDelay(true);
+        client.setSoTimeout(5000);
+        AudioTrack track = null;
+        try (DataInputStream input = new DataInputStream(client.getInputStream());
+             DataOutputStream output = new DataOutputStream(client.getOutputStream())) {
+            byte[] hello = new byte[14];
+            input.readFully(hello);
+            int rate = input.readInt();
+            int channels = input.readInt();
+            Socket peer = pairedClient;
+            if (!active || peer == null || peer.isClosed() ||
+                !peer.getInetAddress().equals(client.getInetAddress()) ||
+                !new String(hello, StandardCharsets.US_ASCII).equals("MELAUDIO" + code) ||
+                rate < 8000 || rate > 96000 || (channels != 1 && channels != 2)) {
+                output.writeByte(0); output.flush(); return;
+            }
+            int mask = channels == 1 ? AudioFormat.CHANNEL_OUT_MONO : AudioFormat.CHANNEL_OUT_STEREO;
+            int min = AudioTrack.getMinBufferSize(rate, mask, AudioFormat.ENCODING_PCM_16BIT);
+            if (min <= 0) { output.writeByte(0); output.flush(); return; }
+            int buffer = Math.max(min, rate * channels * 2 / 10); // target ~100 ms
+            track = new AudioTrack.Builder()
+                .setAudioAttributes(new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+                .setAudioFormat(new AudioFormat.Builder()
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setSampleRate(rate).setChannelMask(mask).build())
+                .setBufferSizeInBytes(buffer)
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .build();
+            if (track.getState() != AudioTrack.STATE_INITIALIZED ||
+                !active || pairedClient != peer || client.isClosed()) {
+                output.writeByte(0); output.flush(); return;
+            }
+            audioTrack = track;
+            track.play();
+            output.writeByte(1); output.flush();
+            // WASAPI may deliver nothing during silence. Keep the audio socket
+            // open until the paired lyric connection ends or the sender closes.
+            client.setSoTimeout(0);
+            while (active && pairedClient == peer && !client.isClosed()) {
+                int count = input.readInt();
+                if (count <= 0 || count > 262144 || count % (channels * 2) != 0)
+                    throw new IOException("Invalid PCM packet length");
+                byte[] data = new byte[count];
+                input.readFully(data);
+                int offset = 0;
+                while (offset < count && active && pairedClient == peer && !client.isClosed()) {
+                    int written = track.write(data, offset, count - offset, AudioTrack.WRITE_BLOCKING);
+                    if (written <= 0) throw new IOException("TV audio write failed: " + written);
+                    offset += written;
+                }
+            }
+        } finally {
+            if (audioTrack == track) audioTrack = null;
+            if (track != null) {
+                try { track.pause(); track.flush(); } catch (RuntimeException ignored) {}
+                track.release();
             }
         }
     }

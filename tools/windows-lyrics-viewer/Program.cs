@@ -58,6 +58,8 @@ internal sealed class LyricsController : Form
     private KaraokeDisplay? _projection;
     private CastTabServer? _castServer;
     private DirectTvSender? _directTv;
+    private DirectTvAudio? _directAudio;
+    private bool _connectingTv;
     private LyricsCanvas? _castCanvas;
     private int _castLeadMs = CastTimingSettings.Read();
     private ToolStripMenuItem? _castTimingMenu;
@@ -111,7 +113,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.28";
+        Text = "Melisma Universal · Windows v0.6.29";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -174,8 +176,10 @@ internal sealed class LyricsController : Form
 
         _secondScreenButton.Click += ToggleSecondScreen;
         toolbar.Controls.Add(_secondScreenButton);
-        _castMenu.Items.Add("Connect directly to Android TV (no browser)",
+        _castMenu.Items.Add("Connect directly to Android TV (lyrics only)",
             null, async (_, _) => await ConnectDirectTvAsync());
+        _castMenu.Items.Add("Connect to Android TV (lyrics + audio) — test",
+            null, async (_, _) => await ConnectDirectTvAsync(true));
         _castMenu.Items.Add("Stop direct TV casting",
             null, (_, _) => StopDirectTv());
         _castMenu.Items.Add(new ToolStripSeparator());
@@ -1005,8 +1009,9 @@ internal sealed class LyricsController : Form
             "5. The TV displays the karaoke lyrics and animations. " +
                 "Chrome is NOT involved.\n\n" +
             "Foobar2000 continues playing music through the Windows " +
-            "audio device you select. NO AUDIO is sent with these lyrics. " +
-            "If TV lyrics are late, use TV / Cast → Cast lyric timing " +
+            "audio device you select in lyrics-only mode. For lyrics + audio, choose the experimental audio mode " +
+            "with Receiver v0.2.0. It captures the default shared-mode Windows output, including other apps. " +
+            "If TV lyrics are early or late, use TV / Cast → Cast lyric timing " +
             "→ Show words earlier (250 ms per click).\n\n" +
             "This is a direct local-network receiver, not Google's " +
             "built-in Chromecast protocol. You do not need a Google login, " +
@@ -1073,13 +1078,21 @@ internal sealed class LyricsController : Form
         _castButton.Text = "TV / Cast";
     }
 
-    private async Task ConnectDirectTvAsync()
+    private async Task ConnectDirectTvAsync(bool withAudio = false)
     {
+        if (_connectingTv) return;
+        if (withAudio && MessageBox.Show(this,
+            "Audio cast captures the DEFAULT Windows playback device, including other apps and system sounds. " +
+            "Set Foobar to that shared-mode device (not exclusive WASAPI/ASIO), and silence other apps. " +
+            "The PC continues playing locally. Use your speaker's physical volume to avoid echo.\n\n" +
+            "Receiver v0.2.0 is required. Start audio casting?",
+            "Melisma · Audio casting (test)", MessageBoxButtons.YesNo, MessageBoxIcon.Information) != DialogResult.Yes) return;
         using var picker = new DirectTvPicker();
         if (picker.ShowDialog(this) != DialogResult.OK ||
             picker.SelectedDevice == null) return;
 
         StopDirectTv();
+        _connectingTv = true;
         _notice = "Connecting to Melisma Receiver on " +
             picker.SelectedDevice.Address + "…";
         try
@@ -1106,6 +1119,48 @@ internal sealed class LyricsController : Form
             _castButton.Text = "TV connected";
             _notice = "Direct lyrics cast active: " +
                 picker.SelectedDevice.Name + " · Foobar audio stays on PC";
+            if (withAudio)
+            {
+                try
+                {
+                    using var audioTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+                    var audio = await DirectTvAudio.ConnectAsync(picker.SelectedDevice, picker.PairingCode, audioTimeout.Token);
+                    if (IsDisposed || !ReferenceEquals(_directTv, connected) || !connected.IsConnected)
+                    { audio.Dispose(); return; }
+                    _directAudio = audio;
+                    audio.Disconnected += message =>
+                    {
+                        try
+                        {
+                            if (!IsDisposed && IsHandleCreated) BeginInvoke(new Action(() =>
+                            {
+                                if (ReferenceEquals(_directAudio, audio))
+                                {
+                                    _directAudio = null;
+                                    audio.Dispose();
+                                    _castButton.Text = "TV connected";
+                                    _notice = message + " (lyrics only now)";
+                                    MessageBox.Show(this, _notice, "TV audio", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                                }
+                            }));
+                        }
+                        catch (InvalidOperationException) { }
+                    };
+                    if (!audio.IsConnected) { _directAudio = null; audio.Dispose(); throw new IOException("Audio capture did not stay active."); }
+                    _castButton.Text = "TV + Audio";
+                    _notice = "Lyrics + audio cast active: " + picker.SelectedDevice.Name +
+                        " · default Windows output";
+                }
+                catch (Exception ex)
+                {
+                    if (!IsDisposed && ReferenceEquals(_directTv, connected))
+                    {
+                        _notice = "Lyrics connected, audio unavailable: " + ex.Message;
+                        MessageBox.Show(this, _notice + "\n\nCheck receiver v0.2.0 and Windows shared-mode output.",
+                            "Melisma · TV audio", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    }
+                }
+            }
         }
         catch (Exception ex) when (ex is IOException or SocketException or
             UnauthorizedAccessException or InvalidOperationException or
@@ -1118,10 +1173,14 @@ internal sealed class LyricsController : Form
                 "Melisma · Direct TV receiver",
                 MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
+        finally { _connectingTv = false; }
     }
 
     private void StopDirectTv()
     {
+        var audio = _directAudio;
+        _directAudio = null;
+        audio?.Dispose();
         _directTv?.Dispose();
         _directTv = null;
         ReleaseCastingCanvasIfUnused();
