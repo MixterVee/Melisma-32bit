@@ -215,7 +215,7 @@ internal sealed class MelismaDisplaySettingsForm : Form
             value => settings.SmoothWordFill = value);
         Choice(lyrics, "Animation style",
             ["Android-style enlargement", "Bouncing ball", "Underline",
-             "Glow", "Highlight only (no motion)", "Random (each song)"],
+             "Glow", "Highlight only (no motion)", "Random (each song)", "Soap bubbles"],
             (int)settings.AnimationStyle, i =>
             {
                 settings.AnimationStyle = (MelismaLyricAnimation)i;
@@ -230,7 +230,7 @@ internal sealed class MelismaDisplaySettingsForm : Form
             "underline and glow follow genuine TTML/YRC word timing or " +
             "enhanced-LRC onsets; they never invent timestamps. " +
             "Line-only lyrics retain normal line highlighting. " +
-            "Highlight only disables animated word effects. Random picks a moving effect per track, shared by all displays.");
+            "Highlight only disables animated word effects. Random picks a moving effect (including Soap bubbles) per track, shared by all displays.");
 
         var bottom = new Panel { Dock = DockStyle.Bottom, Height = 51,
             BackColor = Color.FromArgb(17, 23, 39) };

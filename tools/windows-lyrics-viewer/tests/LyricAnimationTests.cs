@@ -5,10 +5,18 @@ internal static class LyricAnimationTests
     internal static void Run(Action<bool, string> check)
     {
         check((int)MelismaLyricAnimation.AndroidEnlargement == 0 &&
-            Enum.GetValues<MelismaLyricAnimation>().Length == 6,
-            "Existing Android enlargement stays default with six animation choices");
-        check(Enum.GetValues<MelismaLyricAnimation>().Distinct().Count() == 6,
-            "All six saved animation styles are distinct");
+            Enum.GetValues<MelismaLyricAnimation>().Length == 7,
+            "Existing Android enlargement stays default with seven animation choices");
+        check(Enum.GetValues<MelismaLyricAnimation>().Distinct().Count() == 7,
+            "All seven saved animation styles are distinct");
+        var bubbleRandom = new RandomLyricAnimation(n => n - 1);
+        check(bubbleRandom.Resolve(MelismaLyricAnimation.Random,1)==MelismaLyricAnimation.SoapBubbles &&
+            bubbleRandom.Resolve(MelismaLyricAnimation.Random,2)!=MelismaLyricAnimation.SoapBubbles,
+            "Random includes bubbles without immediate repeats");
+        check(LyricAnimationMotion.BubbleAge(999,1000)==-1f &&
+            LyricAnimationMotion.BubbleAge(1900,1000)==0.5f &&
+            LyricAnimationMotion.BubbleAge(2800,1000)==-1f,
+            "Bubbles are playhead-timed and expire");
         var random = new RandomLyricAnimation(_ => 0);
         var first = random.Resolve(MelismaLyricAnimation.Random, 10);
         check(first == random.Resolve(MelismaLyricAnimation.Random, 10), "Random stable across frames/displays/seeks");

@@ -113,7 +113,7 @@ internal sealed class LyricsController : Form
 
     public LyricsController()
     {
-        Text = "Melisma Universal · Windows v0.6.30";
+        Text = "Melisma Universal · Windows v0.6.31";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(825, 590);
         Size = new Size(1050, 780);
@@ -2178,9 +2178,7 @@ internal sealed class LyricsCanvas : Control
         }
         float reveal = LyricPreviewMotion.Reveal(paintTick - _revealTick);
         int active = frame.ActiveIndex;
-        // The scroll away from the dots starts only at the NEXT sung line's
-        // real timestamp. Until then, the third dot must be allowed to land
-        // visibly without the whole row moving up the screen.
+        // Approach the next lyric during the interlude; no second jump at onset.
         var completedGap = !inGap && active >= 0 &&
             active < frame.Lines.Count
                 ? LyricsInterlude.Before(frame.Lines, active) : null;
@@ -2241,6 +2239,7 @@ internal sealed class LyricsCanvas : Control
                 (_lineCenters[center] - _lineCenters[_transitionFrom]) * eased;
         }
 
+        var style = _display.ResolveAnimation(frame.TrackEpoch);
         for (int index = 0; index < _planned.Count; index++)
         {
             if (_display.MinimalMode && index < active) continue;
@@ -2271,7 +2270,7 @@ internal sealed class LyricsCanvas : Control
             var color = Blend(baseColor, Highlight, emphasis);
             var line = frame.Lines[index];
             float? playedCharacters = null;
-            if (!inGap && index == active && line.Words is { Count: > 0 } && progress >= 0.7f)
+            if (!inGap && index == active && line.Words is { Count: > 0 })
             {
                 float count = 0f;
                 foreach (var word in line.Words)
@@ -2304,7 +2303,6 @@ internal sealed class LyricsCanvas : Control
             // Do not delay the beginning of word growth until 70% of the
             // line scroll animation: that gate suddenly switched from the
             // base font to the enlarged overlay mid-word (a visible pop).
-            var style = _display.ResolveAnimation(frame.TrackEpoch);
             AnimatedWord? animated = !inGap && index == active &&
                 LyricAnimationMotion.RequiresWordGeometry(style)
                     ? LocateAnimatedWord(layout, line, frame.LyricPositionMs)
@@ -2340,6 +2338,8 @@ internal sealed class LyricsCanvas : Control
             DrawAndroidInterlude(g, interludeWindow!.Value,
                 frame.LyricPositionMs, dotsY, upcoming, reveal);
         }
+        if (style == MelismaLyricAnimation.SoapBubbles)
+            DrawSoapBubbles(g, frame, anchor, reveal);
         g.Restore(textClip);
         DrawSourceCredit(g, frame);
         DrawIdleTakeover(g);
@@ -2417,8 +2417,7 @@ internal sealed class LyricsCanvas : Control
             _planned[upcoming].Rows.Count > 0)
         {
             float width = Math.Max(1f, LyricsArea.Width - 2f * SidePadding);
-            float rowWidth = TextWidth(g, _planned[upcoming].Rows[0].Text,
-                _planned[upcoming].Font);
+            float rowWidth = dotWidth * 3f + gapPx * 2f;
             left = LyricRowAlignment.RowLeft(left, width, rowWidth, true);
         }
         using var format = new StringFormat(StringFormat.GenericTypographic)
@@ -3069,6 +3068,97 @@ internal sealed class LyricsCanvas : Control
         float through = TextWidth(g, rowText[..(start + length)], font);
         return new RectangleF(left + before, rowRect.Top,
             Math.Max(1f, through - before), rowRect.Height);
+    }
+
+    // Same bounded, playhead-derived bubble trail as Android. No particle
+    // state, timer, or queue; seeks and pauses never accumulate effects.
+    private void DrawSoapBubbles(Graphics g, LyricFrame frame, float anchor, float opacity)
+    {
+        int budget = LyricAnimationMotion.MaxVisibleBubbles;
+        int active = Math.Max(0, frame.ActiveIndex);
+        int first = Math.Max(0, active - 6);
+        int last = Math.Min(_planned.Count - 1, active + 2);
+        var saved = g.Save();
+        try
+        {
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            using var format = new StringFormat(StringFormat.GenericTypographic)
+            {
+                Alignment = _display.Layout == MelismaViewMode.Lyrics ?
+                    StringAlignment.Center : StringAlignment.Near,
+                LineAlignment = StringAlignment.Center,
+                FormatFlags = StringFormatFlags.NoWrap
+            };
+            using var fill = new SolidBrush(Color.Transparent);
+            using var rim = new Pen(Color.Transparent);
+            for (int index = last; index >= first; index--)
+            {
+                var line = frame.Lines[index];
+                if (line.AtMs > frame.LyricPositionMs ||
+                    line.Words is not { Count: > 0 } words) continue;
+                var layout = _planned[index];
+                float centerY = Height * AndroidInterludeRow.FocusFraction +
+                    _lineCenters[index] - anchor;
+                if (centerY + layout.TotalHeight / 2f < 0f ||
+                    centerY - layout.TotalHeight / 2f > Height + layout.RowHeight * 3f) continue;
+                float font = layout.Font.GetHeight(g);
+                int prefix = words.Sum(w => w.Text.Length);
+                for (int i = words.Count - 1; i >= 0; i--)
+                {
+                    var word = words[i];
+                    prefix -= word.Text.Length;
+                    long duration = word.EndMs > word.AtMs ? word.EndMs - word.AtMs : 0;
+                    int count = duration >= 450 ? 2 : 1;
+                    if (LyricAnimationMotion.BubbleAge(frame.LyricPositionMs,
+                        word.AtMs + (count == 2 ? duration / 2 : 0)) < 0f &&
+                        LyricAnimationMotion.BubbleAge(frame.LyricPositionMs, word.AtMs) < 0f) continue;
+                    int start = prefix + word.Text.Length - word.Text.TrimStart().Length;
+                    int length = word.Text.Trim().Length;
+                    if (length == 0) continue;
+                    for (int rowIndex = 0; rowIndex < layout.Rows.Count; rowIndex++)
+                    {
+                        var row = layout.Rows[rowIndex];
+                        int from = Math.Max(start, row.Start);
+                        int to = Math.Min(start + length, row.Start + row.Text.Length);
+                        if (to <= from) continue;
+                        var rect = new RectangleF(LyricsArea.Left + SidePadding,
+                            centerY - layout.TotalHeight / 2f + rowIndex * layout.RowHeight,
+                            Math.Max(1f, LyricsArea.Width - 2f * SidePadding), layout.RowHeight);
+                        var ink = WordInkBounds(g, row.Text, layout.Font, rect,
+                            format, from - row.Start, to - from);
+                        if (ink.IsEmpty) continue;
+                        for (int part = count - 1; part >= 0; part--)
+                        {
+                            float age = LyricAnimationMotion.BubbleAge(frame.LyricPositionMs,
+                                word.AtMs + (part == 0 ? 0 : duration / 2));
+                            if (age < 0f) continue;
+                            int seed = (index * 31 + i * 17 + part * 13) & 255;
+                            float direction = seed % 2 == 0 ? -1f : 1f;
+                            float radius = Math.Max(2f, font * (0.11f + seed % 5 * 0.014f) *
+                                (0.7f + 0.3f * Math.Clamp(age * 5f, 0f, 1f)));
+                            float x = ink.Left + ink.Width / 2f + direction * font * age * 0.45f +
+                                MathF.Sin(age * 5f + seed * 0.1f) * font * age * 0.15f;
+                            float y = ink.Top - font * (0.15f + age * 1.65f);
+                            if (y + radius < 0f || y - radius > Height) continue;
+                            float alpha = (1f - age) * (1f - age) * Math.Clamp(opacity, 0f, 1f);
+                            var bubble = new RectangleF(x-radius,y-radius,radius*2f,radius*2f);
+                            fill.Color = Color.FromArgb((int)(alpha * 24f),165,220,255);
+                            g.FillEllipse(fill,bubble);
+                            rim.Width = Math.Max(0.9f,radius*0.12f);
+                            rim.Color = Color.FromArgb((int)(alpha * 190f),195,238,255);
+                            g.DrawEllipse(rim,bubble);
+                            rim.Color = Color.FromArgb((int)(alpha * 160f),255,174,232);
+                            g.DrawArc(rim,bubble,15f,110f);
+                            fill.Color = Color.FromArgb((int)(alpha * 230f),255,255,255);
+                            g.FillEllipse(fill,x-radius*0.53f,y-radius*0.53f,radius*0.36f,radius*0.36f);
+                            if (--budget == 0) return;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        finally { g.Restore(saved); }
     }
 
     private void DrawAlternativeWordEffect(Graphics g, TextLayout layout,
