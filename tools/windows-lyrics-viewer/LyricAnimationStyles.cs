@@ -10,7 +10,31 @@ internal enum MelismaLyricAnimation
     BouncingBall,
     Underline,
     Glow,
-    HighlightOnly
+    HighlightOnly,
+    Random
+}
+
+internal sealed class RandomLyricAnimation
+{
+    private ulong? _epoch;
+    private MelismaLyricAnimation _selected;
+    private readonly Func<int, int> _next;
+    internal RandomLyricAnimation(Func<int, int>? next = null) =>
+        _next = next ?? (n => System.Random.Shared.Next(n));
+
+    internal MelismaLyricAnimation Resolve(MelismaLyricAnimation setting, ulong epoch)
+    {
+        if (setting != MelismaLyricAnimation.Random) return setting;
+        if (_epoch != epoch)
+        {
+            // Random uses the four moving effects; avoid repeating the previous song.
+            int next = _next(_epoch.HasValue ? 3 : 4);
+            if (_epoch.HasValue && next >= (int)_selected) next++;
+            _selected = (MelismaLyricAnimation)next;
+            _epoch = epoch;
+        }
+        return _selected;
+    }
 }
 
 internal static class LyricAnimationMotion

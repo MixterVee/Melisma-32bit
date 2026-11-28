@@ -5,10 +5,16 @@ internal static class LyricAnimationTests
     internal static void Run(Action<bool, string> check)
     {
         check((int)MelismaLyricAnimation.AndroidEnlargement == 0 &&
-            Enum.GetValues<MelismaLyricAnimation>().Length == 5,
-            "Existing Android enlargement stays default with five animation choices");
-        check(Enum.GetValues<MelismaLyricAnimation>().Distinct().Count() == 5,
-            "All five saved animation styles are distinct");
+            Enum.GetValues<MelismaLyricAnimation>().Length == 6,
+            "Existing Android enlargement stays default with six animation choices");
+        check(Enum.GetValues<MelismaLyricAnimation>().Distinct().Count() == 6,
+            "All six saved animation styles are distinct");
+        var random = new RandomLyricAnimation(_ => 0);
+        var first = random.Resolve(MelismaLyricAnimation.Random, 10);
+        check(first == random.Resolve(MelismaLyricAnimation.Random, 10), "Random stable across frames/displays/seeks");
+        var second = random.Resolve(MelismaLyricAnimation.Random, 11);
+        check(first != second && (int)second < 4, "Random chooses another moving effect on new track");
+        check(random.Resolve(MelismaLyricAnimation.Glow, 11) == MelismaLyricAnimation.Glow && random.Resolve(MelismaLyricAnimation.Random, 11) == second, "Explicit style wins; return to Random retains song choice");
         check(LyricAnimationMotion.UsesEnlargement(
                 MelismaLyricAnimation.AndroidEnlargement) &&
             !LyricAnimationMotion.UsesEnlargement(
