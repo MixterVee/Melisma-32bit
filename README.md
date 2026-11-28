@@ -1,3 +1,9 @@
+# Melisma Universal v2.8.13 — visual lyric animation test
+
+Settings → Lyrics display → Animation style adds Enlargement (existing default), Bouncing ball, Underline, Glow, Highlight only and Random. Random picks one moving effect per recording and excludes immediate repeats. Existing Calculate/Animate timing setting remains separate. Both phone and TV use the native lyric renderer; alternative effects follow timed syllables and preserve line-only behavior. Test remote focus, wrapping, timing, long notes, phone layout, and both ARM architectures. Keep prior builds; not yet visually verified.
+
+---
+
 # Melisma 32-bit / Android TV compatibility builds
 
 ## v2.8.12.1 — Android TV Cloud Sync focus hotfix
